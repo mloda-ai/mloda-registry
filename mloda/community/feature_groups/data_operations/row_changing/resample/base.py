@@ -12,6 +12,7 @@ NON-EMPTY ``(partition, bucket)`` pair. Empty gap buckets are NOT emitted. A
 bucket that has rows but whose source values are ALL null still emits a row,
 with ``count = 0`` and ``mean / sum / min / max = None`` (the reference contract).
 A source column equal to ``time_column`` aggregates the bucket start.
+``mean`` / ``sum`` over a timestamp source column raise ValueError (use min, max or count).
 
 Pattern: ``{src}__resample_{n}_{unit}_{agg}``
 
@@ -251,11 +252,13 @@ class ResampleFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Operat
         features: FeatureSet,
         *,
         compute_resample: Callable[[Any, list[ResampleAgg], str, list[str], int, str], Any],
+        timestamp_type: Callable[[Any, str], object | None],
     ) -> Any:
         """Compute all resample aggregates of ``features`` in one group-by.
 
         Raises:
-            ValueError: if the features use more than one bucket grid (partition_by, time_column, n, unit).
+            ValueError: if the features use more than one bucket grid (partition_by, time_column, n, unit),
+                or take ``mean`` / ``sum`` of a timestamp source column.
         """
         aggs: list[ResampleAgg] = []
         grids: dict[tuple[tuple[str, ...], str, int, str], list[str]] = {}
@@ -268,6 +271,11 @@ class ResampleFeatureGroup(KeyColumnInputsMixin, FeatureChainParserMixin, Operat
 
             assert_key_columns_present(data, partition_by, time_column, order_label="time_column")
             assert_source_columns_present(data, [source_col])
+            if agg in ("mean", "sum") and (got := timestamp_type(data, source_col)) is not None:
+                raise ValueError(
+                    f"Resample {agg!r} is not defined for timestamp source column {source_col!r} ({got}); "
+                    "use min, max or count."
+                )
 
             aggs.append(ResampleAgg(feature.name, source_col, agg))
             grids.setdefault((tuple(partition_by), time_column, n, unit), []).append(str(feature.name))

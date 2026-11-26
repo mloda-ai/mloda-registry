@@ -84,6 +84,7 @@ def _make_host(
     override_f: list[Any] | None = None,
     implementation: Any = None,
     checks_types: bool = False,
+    checks_timestamp_types: bool = False,
 ) -> Any:
     pinned = table or PinningTable(operation="op", rules={}, rows=(_ROW,))
 
@@ -107,6 +108,10 @@ def _make_host(
         @classmethod
         def checks_pinned_types(cls) -> bool:
             return checks_types
+
+        @classmethod
+        def checks_pinned_timestamp_types(cls) -> bool:
+            return checks_timestamp_types
 
         def create_test_data(self, data: TypedTestData, arrow_types: Mapping[str, Any] | None = None) -> Any:
             if seen_types is not None:
@@ -170,6 +175,18 @@ class _TypedAdapter(_FakeAdapter):
 
     def has_type(self, result: Any, column: str, data_type: DataType) -> bool | None:
         return self._has_type_result
+
+    @staticmethod
+    def exact_type(result: Any, column: str) -> str:
+        return "native_type_x"
+
+
+class _SelectiveTypedAdapter(_FakeAdapter):
+    """Reports a type mismatch for TIMESTAMP columns only."""
+
+    @staticmethod
+    def has_type(result: Any, column: str, data_type: DataType) -> bool | None:
+        return data_type is not DataType.TIMESTAMP_MICROS_TZ
 
     @staticmethod
     def exact_type(result: Any, column: str) -> str:
@@ -346,6 +363,45 @@ class TestOutputType:
                 host.test_mixin_pinned_row(_CASE_ID)
         else:
             host.test_mixin_pinned_row(_CASE_ID)
+
+
+_TS = datetime(2024, 1, 1, tzinfo=timezone.utc)
+_TS_ROW = PinningRow(
+    case="c",
+    feature="f",
+    inputs={"a": (DataType.INT64, (1,))},
+    expected={"f": (DataType.INT64, (10,)), "t": (DataType.TIMESTAMP_MICROS_TZ, (_TS,))},
+)
+_TS_TABLE = PinningTable(operation="op", rules={}, rows=(_TS_ROW,))
+
+
+class TestTimestampOutputType:
+    @staticmethod
+    def _host(checks_timestamp_types: bool, table: PinningTable = _TS_TABLE) -> Any:
+        return _make_host(
+            _returns({"f": [10], "t": [_TS], "a": [1]}),
+            None,
+            table=table,
+            adapter=_SelectiveTypedAdapter(),
+            checks_timestamp_types=checks_timestamp_types,
+        )
+
+    def test_timestamp_column_is_checked_when_the_timestamp_hook_is_on(self) -> None:
+        with pytest.raises(AssertionError, match=r"t.*TIMESTAMP_MICROS_TZ.*native_type_x") as exc_info:
+            self._host(True).test_mixin_pinned_row(_CASE_ID)
+        assert "f:" not in str(exc_info.value)
+
+    def test_int64_only_row_passes_with_the_timestamp_hook_on(self) -> None:
+        host = _make_host(
+            _returns({"f": [10, 20], "a": [1, 2]}),
+            None,
+            adapter=_SelectiveTypedAdapter(),
+            checks_timestamp_types=True,
+        )
+        host.test_mixin_pinned_row(_CASE_ID)
+
+    def test_timestamp_column_is_not_checked_by_default(self) -> None:
+        self._host(False).test_mixin_pinned_row(_CASE_ID)
 
 
 class _FilterImpl(Implementation[Any]):

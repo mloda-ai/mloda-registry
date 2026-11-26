@@ -40,6 +40,13 @@ def _compute(
     return compute_groups(bucketed, specs, [*partition_by, time_column])
 
 
+def _timestamp_type(table: pa.Table, col: str) -> object | None:
+    import pyarrow as pa
+
+    column_type = table.column(col).type
+    return column_type if pa.types.is_timestamp(column_type) else None
+
+
 def reference_resample(group: Any, table: pa.Table, features: FeatureSet) -> pa.Table:
     """Run the group's resample loop with the pure Python reference compute."""
-    return group.resample(table, features, compute_resample=_compute)
+    return group.resample(table, features, compute_resample=_compute, timestamp_type=_timestamp_type)

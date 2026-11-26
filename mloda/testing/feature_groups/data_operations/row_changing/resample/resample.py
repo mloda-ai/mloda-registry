@@ -346,6 +346,11 @@ class ResampleTestBase(
         )
 
     @classmethod
+    def checks_pinned_timestamp_types(cls) -> bool:
+        """Resample pins its timestamp output types on every backend."""
+        return True
+
+    @classmethod
     def nan_divergent_agg_types(cls) -> frozenset[str]:
         """The default plus ``min`` and ``max``, which a framework holding NaN as null returns as null for 1-day buckets."""
         divergent = super().nan_divergent_agg_types()
@@ -748,8 +753,21 @@ class ResampleTestBase(
         def fail(*args: Any, **kwargs: Any) -> Any:
             raise AssertionError("compute_resample must not run for an empty FeatureSet")
 
-        result = self.feature_group_class().resample(self.test_data, FeatureSet(), compute_resample=fail)
+        result = self.feature_group_class().resample(
+            self.test_data, FeatureSet(), compute_resample=fail, timestamp_type=fail
+        )
         assert result is self.test_data
+
+    @pytest.mark.parametrize("source", ["ts", "ts_copy"])
+    @pytest.mark.parametrize("agg", ["mean", "sum"])
+    def test_mean_sum_over_timestamp_source_rejected(self, source: str, agg: str) -> None:
+        """mean and sum over a timestamp source column are rejected, naming the column."""
+        columns = {**_resample_columns(), "ts_copy": (DataType.TIMESTAMP_MICROS_TZ, _RESAMPLE_TIMESTAMPS)}
+        data = self.create_test_data(TypedTestData(columns))
+        fs = self._resample_fs(f"{source}__resample_1_hour_{agg}", ["region"])
+        with pytest.raises(ValueError, match="timestamp source column") as exc_info:
+            calculate_with(self.implementation_class(), data, fs)
+        assert repr(source) in str(exc_info.value)
 
     @pytest.mark.parametrize(
         "names, partition_by",

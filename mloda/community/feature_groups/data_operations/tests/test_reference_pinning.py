@@ -685,6 +685,14 @@ _REJECTION_PARAMS = [
         "not defined",
         id="resample-sum-string-source",
     ),
+    pytest.param(
+        *_RESAMPLE,
+        _RESAMPLE_MEAN,
+        _RESAMPLE_CTX,
+        {"ts": (pa.timestamp("us", tz="UTC"), [_RESAMPLE_TS]), "v": (pa.timestamp("us", tz="UTC"), [_RESAMPLE_TS])},
+        "timestamp source column",
+        id="resample-mean-timestamp-source",
+    ),
 ]
 
 

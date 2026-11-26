@@ -68,6 +68,11 @@ def column_types(data: "DuckdbRelation") -> dict[str, str]:
     return dict(zip(data.columns, [str(t) for t in data.types]))
 
 
+def cast_to_column_type(expr: str, data: "DuckdbRelation", column: str) -> str:
+    """Cast ``expr`` back to the type of ``column`` (DATE_TRUNC and interval math return TIMESTAMP us)."""
+    return f"CAST(({expr}) AS {column_types(data)[column]})"
+
+
 _FLOAT_TYPES = ("FLOAT", "DOUBLE")
 
 # DuckDB integer types narrower than 64 bits: they widen to BIGINT without overflow and fit exactly in a DOUBLE.

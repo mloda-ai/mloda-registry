@@ -10,6 +10,7 @@ with no non-null values still emits: ``count = 0``, other aggs ``None``.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from mloda.provider import ComputeFramework, FeatureSet, Implementation
@@ -53,7 +54,14 @@ class PythonDictResample(Implementation[ResampleFeatureGroup]):
     def calculate(
         cls, group: type[ResampleFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
     ) -> Any:
-        return group.resample(data, features, compute_resample=cls._compute_resample)
+        return group.resample(
+            data, features, compute_resample=cls._compute_resample, timestamp_type=cls._timestamp_type
+        )
+
+    @classmethod
+    def _timestamp_type(cls, data: dict[str, list[Any]], col: str) -> object | None:
+        value = next((v for v in data[col] if v is not None), None)
+        return "datetime" if isinstance(value, datetime) else None
 
     @classmethod
     def _compute_resample(

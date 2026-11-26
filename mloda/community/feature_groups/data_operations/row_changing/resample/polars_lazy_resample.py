@@ -41,7 +41,14 @@ class PolarsLazyResample(Implementation[ResampleFeatureGroup]):
     def calculate(
         cls, group: type[ResampleFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
     ) -> Any:
-        return group.resample(data, features, compute_resample=cls._compute_resample)
+        return group.resample(
+            data, features, compute_resample=cls._compute_resample, timestamp_type=cls._timestamp_type
+        )
+
+    @classmethod
+    def _timestamp_type(cls, data: pl.LazyFrame, col: str) -> object | None:
+        dtype = data.collect_schema()[col]
+        return dtype if isinstance(dtype, pl.Datetime) else None
 
     @classmethod
     def _compute_resample(
