@@ -146,10 +146,10 @@ class PythonDictRank(Implementation[RankFeatureGroup]):
 
         elif rank_type.startswith("top_"):
             top_n = int(rank_type[len("top_") :])
-            # Reverse the ASC-sorted non-null rows to get DESC; keep null-likes (None/NaN) last
+            # Stable DESC sort keeps input order among ties; null-likes (None/NaN) last
             non_null = [(idx, val) for idx, val in sorted_rows if not is_null_like(val)]
             nulls = [(idx, val) for idx, val in sorted_rows if is_null_like(val)]
-            desc_rows = non_null[::-1] + nulls
+            desc_rows = sorted(non_null, key=lambda x: x[1], reverse=True) + nulls
             for pos, (idx, _) in enumerate(desc_rows):
                 result_values[idx] = pos + 1 <= top_n
 

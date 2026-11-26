@@ -45,13 +45,15 @@ Rank types:
 
 | Type | Semantics |
 |---|---|
-| `row_number` | Unique 1-based position, ties broken by `order_by` |
+| `row_number` | Unique 1-based position, ties broken by input order |
 | `rank` | Standard rank with gaps (1, 2, 2, 4) |
 | `dense_rank` | Standard rank without gaps (1, 2, 2, 3) |
 | `percent_rank` | `(rank - 1) / (n - 1)` in `[0, 1]` |
 | `ntile_N` | Split into N buckets, return 1..N |
 | `top_N` | Boolean: row is in top N by `order_by` |
 | `bottom_N` | Boolean: row is in bottom N by `order_by` |
+
+`row_number`, `ntile_N`, `top_N` and `bottom_N` break `order_by` ties by input order, so at a `top_N` / `bottom_N` cut the earlier input row wins.
 
 ```python
 Feature(
@@ -105,7 +107,7 @@ Unsupported values are rejected at match time, not at compute: `offset_type="ban
 ## Shared semantics
 
 - **NULL in offsets**: Offsets reference *other* rows, so the current row being NULL does not force a NULL result. `lag_N` on a NULL row returns whatever sits N rows earlier (possibly non-NULL). `first_value` and `last_value` skip NULL source values and return the first or last non-NULL in the partition; the result is NULL only when every value in the partition is NULL. A NULL result from `lag_N`/`lead_N` happens when the referenced position falls outside the partition (first or last N rows).
-- **NULL in ranks**: NULL values in the order column sort *last* in both ascending and descending directions; they still receive a rank. For `top_N`/`bottom_N` those NULL-ordered rows get `False` whenever N is smaller than the partition size.
+- **NULL in ranks**: NULL values in the order column sort *last* in both ascending and descending directions; they still receive a rank. Null-like order values rank after every real value (NaN before None), so a `top_N` / `bottom_N` flag reaches them only once N exceeds the partition's real-valued rows.
 - **Partition boundaries**: Operations never cross partitions. `lag_1` at the first row of a partition yields NULL, not a value from the previous partition.
 - **Empty partitions**: Impossible by construction (a partition exists only if a row has its key).
 

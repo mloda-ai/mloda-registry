@@ -16,7 +16,10 @@ RANK_RULES: Mapping[str, str] = MappingProxyType(
         "order": "Each partition is ordered by order_by ascending, stably: input order breaks ties.",
         "order_tiers": "In order_by real values come first, then NaN, then None; NaN and None are separate tiers.",
         "ties": "rank and percent_rank give a tie run the rank of its first row; dense_rank has no gaps.",
-        "top_bottom": "top_N and bottom_N place NaN order values before None order values, both after every real value.",
+        "top_bottom": (
+            "top_N and bottom_N place NaN order values before None order values, both after every real value; "
+            "a tie at the cut keeps the earlier input row."
+        ),
         "partition_keys": "NaN partition keys merge into one group; a None partition key is its own group.",
         "all_none": "A partition whose order values are all None ties on every row.",
         "single_row": "percent_rank of a single-row partition is 0.0.",
@@ -221,6 +224,36 @@ RANK_PINNING = PinningTable(
             inputs={"p": (_S, ("a", "b", "a", "b", "a", "b")), "o": (_D, (1.0, NAN, NAN, 5.0, 3.0, 4.0))},
             # per partition, real values outrank NaN: a keeps 3.0 and 1.0, b keeps 5.0 and 4.0
             expected={"o__top_2_ranked": (_B, (True, False, False, True, True, True))},
+            context=_CTX,
+        ),
+        PinningRow(
+            case="top_bottom",
+            feature="o__top_1_ranked",
+            inputs={"p": (_S, ("a",) * 3), "o": (_D, (5.0, 5.0, 1.0))},
+            # the cut splits the tied 5.0 values: the earlier input row wins
+            expected={"o__top_1_ranked": (_B, (True, False, False))},
+            context=_CTX,
+        ),
+        PinningRow(
+            case="top_bottom",
+            feature="o__top_1_ranked",
+            inputs={"p": (_S, ("a",) * 3), "o": (_I, (5, 5, 1))},
+            expected={"o__top_1_ranked": (_B, (True, False, False))},
+            context=_CTX,
+        ),
+        PinningRow(
+            case="top_bottom",
+            feature="o__bottom_1_ranked",
+            inputs={"p": (_S, ("a",) * 3), "o": (_D, (1.0, 1.0, 5.0))},
+            expected={"o__bottom_1_ranked": (_B, (True, False, False))},
+            context=_CTX,
+        ),
+        PinningRow(
+            case="top_bottom",
+            feature="o__top_2_ranked",
+            inputs={"p": (_S, ("a",) * 3), "o": (_D, (NAN, NAN, 1.0))},
+            # the cut splits the NaN tier: the earlier NaN row wins
+            expected={"o__top_2_ranked": (_B, (True, False, True))},
             context=_CTX,
         ),
     ),
