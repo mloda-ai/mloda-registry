@@ -347,7 +347,6 @@ class ResampleTestBase(
 
     @classmethod
     def checks_pinned_timestamp_types(cls) -> bool:
-        """Resample pins its timestamp output types on every backend."""
         return True
 
     @classmethod
@@ -761,7 +760,6 @@ class ResampleTestBase(
     @pytest.mark.parametrize("source", ["ts", "ts_copy"])
     @pytest.mark.parametrize("agg", ["mean", "sum"])
     def test_mean_sum_over_timestamp_source_rejected(self, source: str, agg: str) -> None:
-        """mean and sum over a timestamp source column are rejected, naming the column."""
         columns = {**_resample_columns(), "ts_copy": (DataType.TIMESTAMP_MICROS_TZ, _RESAMPLE_TIMESTAMPS)}
         data = self.create_test_data(TypedTestData(columns))
         fs = self._resample_fs(f"{source}__resample_1_hour_{agg}", ["region"])

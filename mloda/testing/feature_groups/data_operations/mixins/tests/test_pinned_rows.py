@@ -22,6 +22,14 @@ _ROW = PinningRow(
     inputs={"a": (DataType.INT64, (1, 2))},
     expected={"f": (DataType.INT64, (10, 20))},
 )
+_TS = datetime(2024, 1, 1, tzinfo=timezone.utc)
+_TS_ROW = PinningRow(
+    case="c",
+    feature="f",
+    inputs={"a": (DataType.INT64, (1,))},
+    expected={"f": (DataType.INT64, (10,)), "t": (DataType.TIMESTAMP_MICROS_TZ, (_TS,))},
+)
+_TS_TABLE = PinningTable(operation="op", rules={}, rows=(_TS_ROW,))
 _PATTERN = "not supported"
 
 
@@ -346,62 +354,44 @@ class TestColumnSet:
 
 class TestOutputType:
     @pytest.mark.parametrize(
-        ("checks_types", "has_type", "fails"),
-        [(True, False, True), (True, None, False), (True, True, False), (False, False, False)],
+        ("checks_types", "checks_timestamp_types", "with_timestamp", "adapter", "failing_column"),
+        [
+            pytest.param(True, False, False, _TypedAdapter(False), "f", id="types_on_mismatch_fails"),
+            pytest.param(True, False, False, _TypedAdapter(None), None, id="types_on_unknown_passes"),
+            pytest.param(True, False, False, _TypedAdapter(True), None, id="types_on_match_passes"),
+            pytest.param(False, False, False, _TypedAdapter(False), None, id="types_off_mismatch_passes"),
+            pytest.param(False, True, True, _SelectiveTypedAdapter(), "t", id="timestamp_hook_on_mismatch_fails"),
+            pytest.param(False, True, False, _SelectiveTypedAdapter(), None, id="timestamp_hook_on_int64_only_passes"),
+            pytest.param(False, False, True, _SelectiveTypedAdapter(), None, id="timestamp_hook_off_by_default"),
+        ],
     )
     def test_declared_type_is_checked_only_when_the_hook_is_on(
-        self, checks_types: bool, has_type: bool | None, fails: bool
+        self,
+        checks_types: bool,
+        checks_timestamp_types: bool,
+        with_timestamp: bool,
+        adapter: _FakeAdapter,
+        failing_column: str | None,
     ) -> None:
+        table = _TS_TABLE if with_timestamp else None
+        result = {"f": [10], "t": [_TS], "a": [1]} if with_timestamp else {"f": [10, 20], "a": [1, 2]}
         host = _make_host(
-            _returns({"f": [10, 20], "a": [1, 2]}),
-            None,
-            adapter=_TypedAdapter(has_type),
-            checks_types=checks_types,
-        )
-        if fails:
-            with pytest.raises(AssertionError, match=r"f.*INT64.*native_type_x"):
-                host.test_mixin_pinned_row(_CASE_ID)
-        else:
-            host.test_mixin_pinned_row(_CASE_ID)
-
-
-_TS = datetime(2024, 1, 1, tzinfo=timezone.utc)
-_TS_ROW = PinningRow(
-    case="c",
-    feature="f",
-    inputs={"a": (DataType.INT64, (1,))},
-    expected={"f": (DataType.INT64, (10,)), "t": (DataType.TIMESTAMP_MICROS_TZ, (_TS,))},
-)
-_TS_TABLE = PinningTable(operation="op", rules={}, rows=(_TS_ROW,))
-
-
-class TestTimestampOutputType:
-    @staticmethod
-    def _host(checks_timestamp_types: bool, table: PinningTable = _TS_TABLE) -> Any:
-        return _make_host(
-            _returns({"f": [10], "t": [_TS], "a": [1]}),
+            _returns(result),
             None,
             table=table,
-            adapter=_SelectiveTypedAdapter(),
+            adapter=adapter,
+            checks_types=checks_types,
             checks_timestamp_types=checks_timestamp_types,
         )
-
-    def test_timestamp_column_is_checked_when_the_timestamp_hook_is_on(self) -> None:
-        with pytest.raises(AssertionError, match=r"t.*TIMESTAMP_MICROS_TZ.*native_type_x") as exc_info:
-            self._host(True).test_mixin_pinned_row(_CASE_ID)
-        assert "f:" not in str(exc_info.value)
-
-    def test_int64_only_row_passes_with_the_timestamp_hook_on(self) -> None:
-        host = _make_host(
-            _returns({"f": [10, 20], "a": [1, 2]}),
-            None,
-            adapter=_SelectiveTypedAdapter(),
-            checks_timestamp_types=True,
-        )
-        host.test_mixin_pinned_row(_CASE_ID)
-
-    def test_timestamp_column_is_not_checked_by_default(self) -> None:
-        self._host(False).test_mixin_pinned_row(_CASE_ID)
+        if failing_column is None:
+            host.test_mixin_pinned_row(_CASE_ID)
+        else:
+            with pytest.raises(
+                AssertionError, match=rf"{failing_column}.*(INT64|TIMESTAMP_MICROS_TZ).*native_type_x"
+            ) as e:
+                host.test_mixin_pinned_row(_CASE_ID)
+            other = "t:" if failing_column == "f" else "f:"
+            assert other not in str(e.value)
 
 
 class _FilterImpl(Implementation[Any]):
