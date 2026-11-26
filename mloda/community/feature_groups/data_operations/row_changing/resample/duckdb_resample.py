@@ -20,6 +20,8 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 
 from mloda.community.feature_groups.data_operations.duckdb_helpers import (
+    cast_to_column_type,
+    column_types,
     floor_expr,
     nan_policy_agg_sql,
 )
@@ -59,7 +61,14 @@ class DuckdbResample(Implementation[ResampleFeatureGroup]):
     def calculate(
         cls, group: type[ResampleFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
     ) -> Any:
-        return group.resample(data, features, compute_resample=cls._compute_resample)
+        return group.resample(
+            data, features, compute_resample=cls._compute_resample, timestamp_type=cls._timestamp_type
+        )
+
+    @classmethod
+    def _timestamp_type(cls, data: DuckdbRelation, col: str) -> str | None:
+        dtype = column_types(data)[col]
+        return dtype if dtype.upper().startswith("TIMESTAMP") else None
 
     @classmethod
     def _compute_resample(
@@ -78,7 +87,7 @@ class DuckdbResample(Implementation[ResampleFeatureGroup]):
                 )
 
         quoted_time = quote_ident(time_column)
-        floor_sql = floor_expr(quoted_time, n, unit)
+        floor_sql = cast_to_column_type(floor_expr(quoted_time, n, unit), data, time_column)
 
         # Group keys: partition columns first, then the floored bucket. The
         # bucket is always a key, so the group list is never empty (whole-table

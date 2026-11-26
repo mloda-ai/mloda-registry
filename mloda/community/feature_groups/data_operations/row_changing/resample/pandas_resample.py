@@ -55,7 +55,13 @@ class PandasResample(Implementation[ResampleFeatureGroup]):
     def calculate(
         cls, group: type[ResampleFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
     ) -> Any:
-        return group.resample(data, features, compute_resample=cls._compute_resample)
+        return group.resample(
+            data, features, compute_resample=cls._compute_resample, timestamp_type=cls._timestamp_type
+        )
+
+    @classmethod
+    def _timestamp_type(cls, data: pd.DataFrame, col: str) -> object | None:
+        return data[col].dtype if pd.api.types.is_datetime64_any_dtype(data[col]) else None
 
     @classmethod
     def _compute_resample(
@@ -88,9 +94,10 @@ class PandasResample(Implementation[ResampleFeatureGroup]):
             )
             coerce_count_dtype(part, spec.feature_name, spec.agg)
 
-            if spec.agg != "count":
+            if spec.agg != "count" and not pd.api.types.is_datetime64_any_dtype(part[spec.feature_name]):
                 # NaN (all-null sum / mean) must surface as real None to match the
-                # reference (the harness asserts identity ``is None``).
+                # reference (the harness asserts identity ``is None``). Datetime results
+                # are skipped: they keep their dtype and NaT reads as null.
                 part[spec.feature_name] = (
                     part[spec.feature_name].astype(object).where(part[spec.feature_name].notna(), None)
                 )

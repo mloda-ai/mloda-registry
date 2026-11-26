@@ -46,7 +46,14 @@ class PyArrowResample(Implementation[ResampleFeatureGroup]):
     def calculate(
         cls, group: type[ResampleFeatureGroup], data: Any, features: FeatureSet, framework: ComputeFramework | None
     ) -> Any:
-        return group.resample(data, features, compute_resample=cls._compute_resample)
+        return group.resample(
+            data, features, compute_resample=cls._compute_resample, timestamp_type=cls._timestamp_type
+        )
+
+    @classmethod
+    def _timestamp_type(cls, data: pa.Table, col: str) -> object | None:
+        column_type = data.column(col).type
+        return column_type if pa.types.is_timestamp(column_type) else None
 
     @classmethod
     def _compute_resample(

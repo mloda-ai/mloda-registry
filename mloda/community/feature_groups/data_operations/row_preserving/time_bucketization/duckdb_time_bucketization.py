@@ -19,6 +19,7 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import quote_ident
 
 from mloda.community.feature_groups.data_operations.duckdb_helpers import (
+    cast_to_column_type,
     column_types,
     floor_expr,
     interval_literal,
@@ -125,9 +126,7 @@ class DuckdbTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
         else:  # round
             result_expr = cls._round_expression(quoted_source, n, unit, floor_sql, ceil_next)
 
-        # Cast keeps the source unit (DATE_TRUNC and interval math return TIMESTAMP us).
-        source_type = column_types(data)[source_col]
-        raw_sql = f"*, CAST(({result_expr}) AS {source_type}) AS {quoted_feature}"
+        raw_sql = f"*, {cast_to_column_type(result_expr, data, source_col)} AS {quoted_feature}"
         result: DuckdbRelation = data.project(raw_sql)
         return result
 

@@ -2,8 +2,9 @@
 
 Centralizes the epoch-anchored floor expression (and the interval-literal
 building block it depends on) so every DuckDB-based bucket/resample feature
-group floors timestamps identically, plus a column-type lookup and a
-float-only NaN-to-null wrap shared by aggregation feature groups.
+group floors timestamps identically, plus a column-type lookup, a cast
+back to a column's type, and a float-only NaN-to-null wrap shared by aggregation
+feature groups.
 """
 
 from __future__ import annotations
@@ -66,6 +67,11 @@ def floor_expr(quoted_source: str, n: int, unit: str) -> str:
 def column_types(data: "DuckdbRelation") -> dict[str, str]:
     """Column name -> DuckDB type string, read from the relation's schema."""
     return dict(zip(data.columns, [str(t) for t in data.types]))
+
+
+def cast_to_column_type(expr: str, data: "DuckdbRelation", column: str) -> str:
+    """Cast ``expr`` back to the type of ``column`` (DATE_TRUNC and interval math return TIMESTAMP us)."""
+    return f"CAST(({expr}) AS {column_types(data)[column]})"
 
 
 _FLOAT_TYPES = ("FLOAT", "DOUBLE")
