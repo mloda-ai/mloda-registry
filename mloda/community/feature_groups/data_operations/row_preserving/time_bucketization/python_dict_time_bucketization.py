@@ -203,5 +203,19 @@ class PythonDictTimeBucketization(Implementation[TimeBucketizationFeatureGroup])
 
         data = dict(data)
         col = data[source_col]
-        data[feature_name] = [fn(value, n, unit) if value is not None else None for value in col]
+        data[feature_name] = [cls._bucket_value(fn, value, n, unit, source_col) for value in col]
         return data
+
+    @staticmethod
+    def _bucket_value(fn: Any, value: Any, n: int, unit: str, source_col: str) -> Any:
+        """Bucket one value, rejecting a ns value near the range edge or a datetime edge overflow."""
+        if value is None:
+            return None
+        if getattr(value, "unit", None) == "ns":  # duck-typed pd.Timestamp, no pandas import
+            lo, hi = TimeBucketizationFeatureGroup._nanosecond_safe_window(n, unit)
+            if not lo <= value.value <= hi:
+                TimeBucketizationFeatureGroup._raise_boundary_out_of_range(source_col, value)
+        try:
+            return fn(value, n, unit)
+        except (OverflowError, ValueError):
+            TimeBucketizationFeatureGroup._raise_boundary_out_of_range(source_col, value)

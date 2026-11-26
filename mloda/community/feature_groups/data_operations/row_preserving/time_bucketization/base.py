@@ -35,7 +35,7 @@ datetime FG's ``datetime_op``.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, NoReturn
 
 from mloda.provider import (
     DefaultOptionKeys,
@@ -72,6 +72,20 @@ TIME_BUCKETIZATION_UNITS: dict[str, str] = {
 
 # Calendar units only support ``n=1`` in v1.
 _CALENDAR_UNITS: frozenset[str] = frozenset({"week", "month", "year"})
+
+_DAY_SECONDS = 86400
+# Widest bucket per unit in seconds (a calendar unit at its longest), used for the nanosecond range-edge margin.
+_NS_UNIT_SECONDS: dict[str, int] = {
+    "minute": 60,
+    "hour": 3600,
+    "day": _DAY_SECONDS,
+    "week": 7 * _DAY_SECONDS,
+    "month": 31 * _DAY_SECONDS,
+    "year": 366 * _DAY_SECONDS,
+}
+_NS_EDGE_SLACK_SECONDS = 7 * _DAY_SECONDS
+_NS_MIN = -(2**63) + 1
+_NS_MAX = 2**63 - 1
 
 
 def _parse_bucket_op(token: str) -> tuple[str, int, str]:
@@ -220,6 +234,20 @@ class TimeBucketizationFeatureGroup(FeatureChainParserMixin, OperationFeatureGro
         raise ValueError(
             f"Source column {source_col!r} must be a timestamp/datetime for time bucketization; got {got}."
         )
+
+    @staticmethod
+    def _raise_boundary_out_of_range(source_col: str, value: object) -> NoReturn:
+        """Shared error for a nanosecond source value too close to the representable range edge."""
+        raise ValueError(
+            f"Bucket boundary for source column {source_col!r} is outside the representable "
+            f"timestamp range (source value {value})."
+        )
+
+    @staticmethod
+    def _nanosecond_safe_window(n: int, unit: str) -> tuple[int, int]:
+        """Epoch-ns ``(lo, hi)`` a nanosecond source value must lie in: bucket width + 7 days from the range edge."""
+        margin = (n * _NS_UNIT_SECONDS.get(unit, 0) + _NS_EDGE_SLACK_SECONDS) * 1_000_000_000
+        return _NS_MIN + margin, _NS_MAX - margin
 
     @classmethod
     def bucketize(

@@ -23,6 +23,26 @@ class TestPythonDictTimeBucketization(PythonDictTestMixin, TimeBucketizationTest
     def implementation_class(cls) -> Any:
         return PythonDictTimeBucketization
 
+    @classmethod
+    def holds_wall_clock_past_nanosecond_range(cls) -> bool:
+        return False
+
+    def test_wall_clock_past_nanosecond_range_still_unsupported(self) -> None:
+        """Pins core's ValueError for a tz-aware ns value past the ns range locally; flags when core can hold it."""
+        from datetime import datetime, timezone
+        from zoneinfo import ZoneInfo
+
+        from mloda.user import DataType
+
+        pa = pytest.importorskip("pyarrow")
+
+        from mloda.testing.typed_data import TypedTestData
+
+        instant = datetime(2262, 4, 11, 20, tzinfo=timezone.utc).astimezone(ZoneInfo("Asia/Tokyo"))
+        data = TypedTestData({"ts": (DataType.TIMESTAMP_MICROS_TZ, [instant])})
+        with pytest.raises(ValueError):
+            self.create_test_data(data, arrow_types={"ts": pa.timestamp("ns", tz="Asia/Tokyo")})
+
     # -- Non-divisor bucket sizes (epoch-anchored floor regression guards) --
 
     def test_cross_framework_non_divisor_minute_bucket(self) -> None:
@@ -62,6 +82,20 @@ class TestPythonDictDateSourceRejected:
         data = {"timestamp": [date(2023, 1, 1)]}
         fs = make_feature_set("timestamp__floor_1_day")
         with pytest.raises(ValueError, match=r"(?i)timestamp|datetime|DATE"):
+            calculate_with(PythonDictTimeBucketization, data, fs)
+
+
+class TestPythonDictYear9999EdgeRejected:
+    """A bucket boundary past Python's year 9999 raises a ValueError naming the column."""
+
+    def test_ceil_past_year_9999_rejected(self) -> None:
+        from datetime import datetime
+
+        from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+
+        data = {"timestamp": [datetime(9999, 12, 31, 12)]}
+        fs = make_feature_set("timestamp__ceil_1_day")
+        with pytest.raises(ValueError, match=r"['\"]timestamp['\"]"):
             calculate_with(PythonDictTimeBucketization, data, fs)
 
 

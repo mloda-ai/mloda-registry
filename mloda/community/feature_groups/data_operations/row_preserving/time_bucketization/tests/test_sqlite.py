@@ -47,6 +47,22 @@ class TestSqliteTimeBucketization(ReservedColumnsTestMixin, SqliteTestMixin, Tim
         return True
 
     @classmethod
+    def holds_nanosecond_timestamps(cls) -> bool:
+        return False
+
+    def test_nanosecond_source_still_unsupported(self) -> None:
+        """Pins core's ingest failure for an ns column; flags when SQLite can hold it, so the skip can go."""
+        from datetime import datetime
+
+        from mloda.user import DataType
+
+        from mloda.testing.typed_data import TypedTestData
+
+        typed = TypedTestData({"ts": (DataType.TIMESTAMP_MICROS, [datetime(2023, 1, 1)])})
+        with pytest.raises(sqlite3.ProgrammingError, match=r"Timestamp"):
+            self.create_test_data(typed, arrow_types={"ts": pa.timestamp("ns")})
+
+    @classmethod
     def reserved_columns_feature_name(cls) -> str:
         return "timestamp__floor_1_day"
 

@@ -33,6 +33,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pytest
 from mloda.provider import FeatureSet
@@ -241,6 +242,21 @@ class TimeBucketizationTestBase(
         """False when the framework cannot hold a fixed offset that is not a whole number of hours."""
         return True
 
+    @classmethod
+    def holds_nanosecond_timestamps(cls) -> bool:
+        """False when the framework cannot hold a nanosecond timestamp column."""
+        return True
+
+    @classmethod
+    def holds_wall_clock_past_nanosecond_range(cls) -> bool:
+        """False when the transfer cannot hold a tz-aware ns value whose local wall clock lies outside the ns range."""
+        return True
+
+    @classmethod
+    def buckets_tz_aware_nanosecond_source(cls) -> bool:
+        """False when the framework rejects a tz-aware nanosecond source up front."""
+        return True
+
     # -- OutputContractTestMixin configuration ----------------------------------
 
     def output_contract_feature_set(self) -> FeatureSet:
@@ -385,6 +401,87 @@ class TimeBucketizationTestBase(
         if self.rejects_non_utc_source() and any(o != timedelta(0) for o in offsets):
             return "non-UTC"
         return super().rejection_match(row)
+
+    # -- Nanosecond range edge ---------------------------------------------------
+
+    @pytest.mark.parametrize("tz", [None, "UTC", "Asia/Tokyo"], ids=["naive", "utc", "tokyo"])
+    @pytest.mark.parametrize(
+        ("bucket_op", "value"),
+        [
+            pytest.param("floor_1_week", datetime(1677, 9, 25), id="floor_1_week_low"),
+            pytest.param("floor_1_week", datetime(2262, 4, 11, 23), id="floor_1_week_high"),
+            pytest.param("ceil_1_hour", datetime(2262, 4, 11, 23), id="ceil_1_hour_aligned_high"),
+            pytest.param("floor_1_hour", datetime(2262, 4, 11, 20), id="floor_1_hour_high"),
+            pytest.param("ceil_1_year", datetime(2262, 3, 1), id="ceil_1_year_high"),
+            pytest.param("floor_1_year", datetime(1677, 9, 22), id="floor_1_year_low"),
+            pytest.param("floor_1_day", datetime(1677, 9, 21, 0, 13), id="floor_1_day_low"),
+            pytest.param("ceil_1_day", datetime(2262, 4, 11, 23), id="ceil_1_day_high"),
+            pytest.param("round_1_day", datetime(2262, 4, 11, 23), id="round_1_day_high"),
+            pytest.param("ceil_1_year", datetime(1677, 9, 22), id="ceil_1_year_low"),
+            pytest.param("ceil_1_month", datetime(1677, 9, 22), id="ceil_1_month_low"),
+            pytest.param("ceil_1_day", datetime(1677, 9, 21, 1), id="ceil_1_day_low"),
+            pytest.param("round_1_year", datetime(2262, 3, 1), id="round_1_year_high"),
+            pytest.param("round_1_day", datetime(1677, 9, 21, 1), id="round_1_day_low"),
+        ],
+    )
+    def test_nanosecond_boundary_out_of_range_rejected(self, tz: str | None, bucket_op: str, value: datetime) -> None:
+        """A value within the margin of the nanosecond range edge raises a ValueError naming the column."""
+        pa = pytest.importorskip("pyarrow")
+        if not self.holds_nanosecond_timestamps():
+            pytest.skip("framework cannot hold a nanosecond timestamp column")
+        if tz is not None and not self.buckets_tz_aware_nanosecond_source():
+            pytest.skip("framework rejects a tz-aware nanosecond source")
+        if tz is None:
+            typed = TypedTestData({"ts": (DataType.TIMESTAMP_MICROS, [value, None])})
+        else:
+            instant = value.replace(tzinfo=timezone.utc).astimezone(ZoneInfo(tz))
+            wall_clock = instant.replace(tzinfo=None)
+            if not self.holds_wall_clock_past_nanosecond_range() and (
+                wall_clock > datetime(2262, 4, 11, 23, 47, 16) or wall_clock < datetime(1677, 9, 21, 0, 12, 43)
+            ):
+                pytest.skip("framework transfer cannot hold a local wall clock outside the nanosecond range")
+            typed = TypedTestData({"ts": (DataType.TIMESTAMP_MICROS_TZ, [instant, None])})
+        data = self.create_test_data(typed, arrow_types={"ts": pa.timestamp("ns", tz=tz)})
+        fs = make_feature_set(f"ts__{bucket_op}")
+        with pytest.raises(ValueError, match=r"['\"]ts['\"]"):
+            calculate_with(self.implementation_class(), data, fs)
+
+    @pytest.mark.parametrize(
+        ("bucket_op", "value", "expected"),
+        [
+            pytest.param("floor_1_year", datetime(2261, 3, 1), datetime(2261, 1, 1), id="floor_1_year_high"),
+            pytest.param(
+                "floor_1_hour", datetime(1677, 9, 28, 12, 30), datetime(1677, 9, 28, 12), id="floor_1_hour_low"
+            ),
+            pytest.param("ceil_1_day", datetime(2262, 4, 3, 12), datetime(2262, 4, 4), id="ceil_1_day_high"),
+            pytest.param(
+                "round_1_hour", datetime(2262, 4, 3, 12, 20), datetime(2262, 4, 3, 12), id="round_1_hour_high"
+            ),
+            pytest.param("ceil_1_year", datetime(2261, 3, 1), datetime(2262, 1, 1), id="ceil_1_year_high"),
+            pytest.param("floor_1_week", datetime(1677, 10, 10, 12), datetime(1677, 10, 4), id="floor_1_week_low"),
+        ],
+    )
+    @pytest.mark.parametrize("tz", [None, "UTC"], ids=["naive", "utc"])
+    def test_nanosecond_boundary_inside_range_computed(
+        self, tz: str | None, bucket_op: str, value: datetime, expected: datetime
+    ) -> None:
+        """A boundary just inside the nanosecond range is still computed; a null row stays null."""
+        pa = pytest.importorskip("pyarrow")
+        if not self.holds_nanosecond_timestamps():
+            pytest.skip("framework cannot hold a nanosecond timestamp column")
+        if tz is not None and not self.buckets_tz_aware_nanosecond_source():
+            pytest.skip("framework rejects a tz-aware nanosecond source")
+        if tz is None:
+            typed = TypedTestData({"ts": (DataType.TIMESTAMP_MICROS, [value, None])})
+        else:
+            typed = TypedTestData({"ts": (DataType.TIMESTAMP_MICROS_TZ, [value.replace(tzinfo=timezone.utc), None])})
+            expected = expected.replace(tzinfo=timezone.utc)
+        data = self.create_test_data(typed, arrow_types={"ts": pa.timestamp("ns", tz=tz)})
+        fs = make_feature_set(f"ts__{bucket_op}")
+        result = calculate_with(self.implementation_class(), data, fs)
+        col = self.extract_column(result, f"ts__{bucket_op}")
+        assert col[0] == expected
+        assert col[1] is None
 
     # -- Cross-cutting semantics --------------------------------------------
 

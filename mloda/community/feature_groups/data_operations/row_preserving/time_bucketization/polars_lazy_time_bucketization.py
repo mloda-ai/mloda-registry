@@ -65,6 +65,8 @@ class PolarsLazyTimeBucketization(Implementation[TimeBucketizationFeatureGroup])
     ) -> pl.LazyFrame:
         col = pl.col(source_col)
         duration = duration_token(n, unit)
+        if getattr(data.collect_schema()[source_col], "time_unit", None) == "ns":
+            cls._assert_boundaries_in_range(data, source_col, n, unit)
 
         if op == "floor":
             expr = col.dt.truncate(duration)
@@ -77,6 +79,16 @@ class PolarsLazyTimeBucketization(Implementation[TimeBucketizationFeatureGroup])
             raise ValueError(f"Unsupported bucket op {op!r} for Polars; supported: {sorted(TIME_BUCKETIZATION_OPS)}.")
 
         return data.with_columns(expr.alias(feature_name))
+
+    @staticmethod
+    def _assert_boundaries_in_range(data: pl.LazyFrame, source_col: str, n: int, unit: str) -> None:
+        """Reject ns values within bucket width + 7 days of the representable range edge."""
+        lo, hi = TimeBucketizationFeatureGroup._nanosecond_safe_window(n, unit)
+        col = pl.col(source_col)
+        epoch = col.dt.epoch("ns")
+        offenders = data.filter(((epoch < lo) | (epoch > hi)).fill_null(False)).select(col).head(1).collect()
+        if offenders.height:
+            TimeBucketizationFeatureGroup._raise_boundary_out_of_range(source_col, offenders.item())
 
     @classmethod
     def _ceil_expr(cls, col: pl.Expr, duration: str, unit: str) -> pl.Expr:

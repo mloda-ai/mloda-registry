@@ -60,7 +60,7 @@ def _calendar_floor(series: pd.Series, unit: str) -> pd.Series:
     freq = _PERIOD_FREQ[unit]
     tz = series.dt.tz
     naive = series.dt.tz_localize(None) if tz is not None else series
-    floored_naive = naive.dt.to_period(freq).dt.to_timestamp()
+    floored_naive = naive.dt.to_period(freq).dt.to_timestamp().dt.as_unit(series.dt.unit)
     if tz is not None:
         return floored_naive.dt.tz_localize(tz)
     return floored_naive
@@ -103,14 +103,17 @@ class PandasTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
         data = data.copy()
         col = data[source_col]
 
-        if op == "floor":
-            result = cls._floor_series(col, n, unit)
-        elif op == "ceil":
-            result = cls._ceil_series(col, n, unit)
-        elif op == "round":
-            result = cls._round_series(col, n, unit)
-        else:
+        if op not in TIME_BUCKETIZATION_OPS:
             raise ValueError(f"Unsupported bucket op {op!r} for Pandas; supported: {sorted(TIME_BUCKETIZATION_OPS)}.")
+        if col.dt.unit == "ns":
+            lo, hi = TimeBucketizationFeatureGroup._nanosecond_safe_window(n, unit)
+            utc = col.dt.tz_convert(None) if col.dt.tz is not None else col
+            bad = (utc < pd.Timestamp(lo, unit="ns")) | (utc > pd.Timestamp(hi, unit="ns"))
+            if bad.any():
+                TimeBucketizationFeatureGroup._raise_boundary_out_of_range(
+                    source_col, utc[bad].iloc[0]
+                )  # UTC: a local repr can overflow
+        result = getattr(cls, f"_{op}_series")(col, n, unit).dt.as_unit(col.dt.unit)  # keep the source unit
 
         data[feature_name] = result
         return data

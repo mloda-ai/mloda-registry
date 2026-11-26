@@ -59,6 +59,8 @@ class PyArrowTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
         unit: str,
     ) -> pa.Table:
         column = data.column(source_col)
+        if column.type.unit == "ns":
+            cls._assert_boundaries_in_range(column, source_col, n, unit)
 
         if op == "floor":
             result = cls._floor(column, n, unit)
@@ -74,6 +76,16 @@ class PyArrowTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
             raise ValueError(f"Unsupported bucket op {op!r} for PyArrow; supported: {sorted(TIME_BUCKETIZATION_OPS)}.")
 
         return data.append_column(feature_name, result)
+
+    @classmethod
+    def _assert_boundaries_in_range(cls, column: Any, source_col: str, n: int, unit: str) -> None:
+        """Reject ns values within bucket width + 7 days of the representable range edge."""
+        lo, hi = TimeBucketizationFeatureGroup._nanosecond_safe_window(n, unit)
+        epoch = column.cast(pa.int64())
+        bad = pc.fill_null(pc.or_kleene(pc.less(epoch, lo), pc.greater(epoch, hi)), False)
+        if pc.any(bad).as_py():
+            sample = pc.filter(column.cast(pa.timestamp("ns")), bad)[0].as_py()  # UTC instant, no zone conversion
+            TimeBucketizationFeatureGroup._raise_boundary_out_of_range(source_col, sample)
 
     @staticmethod
     def _floor(column: Any, n: int, unit: str) -> Any:
