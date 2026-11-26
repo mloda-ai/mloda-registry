@@ -64,8 +64,11 @@ class DuckdbOffset(Implementation[OffsetFeatureGroup]):
     ) -> DuckdbRelation:
         quoted_source = quote_ident(source_col)
         numeric_source = quoted_source
-        if column_types(data).get(source_col, "").upper() in NARROW_INTEGER_TYPES:
+        source_type = column_types(data).get(source_col, "").upper()
+        if source_type in NARROW_INTEGER_TYPES:
             numeric_source = f"CAST({quoted_source} AS BIGINT)"
+        elif source_type == "UBIGINT":
+            numeric_source = f"CAST({quoted_source} AS HUGEINT)"  # lossless, so the difference cannot wrap
         order_spec: list[str | OrderBy] = [OrderBy(order_by, nulls="last"), rn]
 
         offset_expr: str
@@ -77,12 +80,12 @@ class DuckdbOffset(Implementation[OffsetFeatureGroup]):
         elif offset_type.startswith("lead_"):
             offset_n = int(offset_type[len("lead_") :])
             offset_expr = f"LEAD({quoted_source}, {offset_n})"
-        elif offset_type.startswith("diff_"):
+        elif offset_type.startswith("diff_") and source_type != "UBIGINT":
             offset_n = int(offset_type[len("diff_") :])
             # SQL binds OVER to the LAG term only, matching the original behaviour.
             offset_expr = f"{numeric_source} - LAG({numeric_source}, {offset_n})"
-        elif offset_type.startswith("pct_change_"):
-            offset_n = int(offset_type[len("pct_change_") :])
+        elif offset_type.startswith(("diff_", "pct_change_")):
+            offset_n = int(offset_type.split("_")[-1])
 
             # The LAG window is referenced multiple times inside the CASE, so it
             # cannot be a single window func. Precompute LAG into a helper column,
@@ -95,10 +98,13 @@ class DuckdbOffset(Implementation[OffsetFeatureGroup]):
                 partition_by=partition_by,
                 order_by=order_spec,
             )
-            case_expr = (
-                f"CASE WHEN {qprev} IS NOT NULL AND {qprev} != 0 "
-                f"THEN ({numeric_source} - {qprev}) / CAST({qprev} AS DOUBLE) END"
-            )
+            if offset_type.startswith("diff_"):
+                case_expr = f"CAST({numeric_source} - {qprev} AS BIGINT)"  # strict: out of int64 raises
+            else:
+                case_expr = (
+                    f"CASE WHEN {qprev} IS NOT NULL AND {qprev} != 0 "
+                    f"THEN ({numeric_source} - {qprev}) / CAST({qprev} AS DOUBLE) END"
+                )
             keep = ", ".join(quote_ident(c) for c in rel.columns if c != prev)
             return rel.project(f"{keep}, {case_expr} AS {quote_ident(feature_name)}")
         elif offset_type == "first_value":

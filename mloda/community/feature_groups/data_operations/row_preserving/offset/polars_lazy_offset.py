@@ -42,6 +42,8 @@ class PolarsLazyOffset(Implementation[OffsetFeatureGroup]):
         numeric_source = pl.col(source_col)
         if schema[source_col] in NARROW_INTEGERS:
             numeric_source = numeric_source.cast(pl.Int64)
+        elif schema[source_col] == pl.UInt64:
+            numeric_source = numeric_source.cast(pl.Int128)  # lossless, so the difference cannot wrap
 
         # Track original row order
         data = data.with_row_index(orig_idx_col)
@@ -57,13 +59,21 @@ class PolarsLazyOffset(Implementation[OffsetFeatureGroup]):
             expr = pl.col(source_col).shift(-offset_n).over(partition_by).alias(feature_name)
         elif offset_type.startswith("diff_"):
             offset_n = int(offset_type[len("diff_") :])
-            expr = (numeric_source - numeric_source.shift(offset_n)).over(partition_by).alias(feature_name)
+            diff = numeric_source - numeric_source.shift(offset_n)
+            if schema[source_col] == pl.UInt64:
+                diff = diff.cast(pl.Int64)  # strict: a result outside int64 raises like the reference
+            expr = diff.over(partition_by).alias(feature_name)
         elif offset_type.startswith("pct_change_"):
             offset_n = int(offset_type[len("pct_change_") :])
             prev = numeric_source.shift(offset_n)
+            change = numeric_source - prev
+            if schema[source_col] == pl.UInt64:
+                change, prev_f = change.cast(pl.Float64), prev.cast(pl.Float64)
+            else:
+                prev_f = prev
             expr = (
                 pl.when(prev.is_not_null() & (prev != 0))
-                .then((numeric_source - prev) / prev)
+                .then(change / prev_f)
                 .otherwise(pl.lit(None))
                 .over(partition_by)
                 .alias(feature_name)

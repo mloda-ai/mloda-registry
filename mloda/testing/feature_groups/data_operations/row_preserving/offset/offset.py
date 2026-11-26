@@ -36,7 +36,7 @@ from mloda.testing.feature_groups.data_operations.mixins.output_contract import 
 from mloda.testing.feature_groups.data_operations.mixins.pinned_rows import PinnedRowTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.result_type import ResultTypeTestMixin
-from mloda.testing.feature_groups.data_operations.pinning import PinningTable
+from mloda.testing.feature_groups.data_operations.pinning import PinningRow, PinningTable
 from mloda.testing.feature_groups.data_operations.row_preserving.offset.pinning_rows import OFFSET_PINNING
 from mloda.testing.feature_groups.data_operations.tie_layouts import TIE_LONG, TIE_SMALL
 from mloda.testing.typed_data import TypedTestData
@@ -100,6 +100,37 @@ class OffsetTestBase(
     @classmethod
     def pinning_table(cls) -> PinningTable:
         return OFFSET_PINNING
+
+    @classmethod
+    def checks_pinned_types(cls) -> bool:
+        """Every pinned row keeps its declared type, or the fixture type where its input lost it."""
+        return True
+
+    @classmethod
+    def holds_uint64_above_int64(cls) -> bool:
+        """False when the framework cannot store a uint64 value of 2**63 or more at ingest."""
+        return True
+
+    @classmethod
+    def rejects_uint64_above_int64(cls) -> bool:
+        """True when diff and pct_change reject a uint64 source value of 2**63 or more with a ValueError."""
+        return False
+
+    def rejection_match(self, row: PinningRow) -> str | None:
+        """A uint64 input of 2**63 or more skips where unholdable, then the declared diff and pct_change rejection."""
+        big = any(
+            data_type == DataType.UINT64 and any(v is not None and v >= 2**63 for v in values)
+            for data_type, values in row.inputs.values()
+        )
+        if big and not self.holds_uint64_above_int64():
+            pytest.skip("framework cannot store a uint64 value of 2**63 or more")
+        if (
+            big
+            and self.rejects_uint64_above_int64()
+            and row.feature.split("__", 1)[1].startswith(("diff_", "pct_change_"))
+        ):
+            return "uint64.*int64"
+        return super().rejection_match(row)
 
     @classmethod
     def pinned_divergences(cls) -> Mapping[str, Mapping[str, list[Any]]]:

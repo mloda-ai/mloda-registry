@@ -420,7 +420,7 @@ def _lost_input_table() -> PinningTable:
     return PinningTable(operation="op", rules={}, rows=(row,))
 
 
-_LOST_RESULT = {"f": [1, None], "g": ["x", "y"], "a": [1, None], "s": ["x", "y"]}
+_LOST_RESULT: dict[str, list[Any]] = {"f": [1, None], "g": ["x", "y"], "a": [1, None], "s": ["x", "y"]}
 
 
 class TestLostFixtureType:
