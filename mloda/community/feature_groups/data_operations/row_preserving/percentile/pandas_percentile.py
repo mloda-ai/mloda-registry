@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
 import pandas as pd
 from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
@@ -39,9 +40,14 @@ class PandasPercentile(Implementation[PercentileFeatureGroup]):
             data, agg_source = apply_pandas_mask(data, source_col, mask_spec, taken={feature_name})
         else:
             data = data.copy()
-        by: str | list[str] = partition_by[0] if len(partition_by) == 1 else partition_by
-        grouped = data.groupby(by, dropna=False)[agg_source]
-        data[feature_name] = grouped.transform(lambda x: x.quantile(percentile))
+        values = data[agg_source].astype("float64")
+        grouped = values.groupby([data[c] for c in partition_by], dropna=False)
+        lo = grouped.transform("quantile", percentile, interpolation="lower")
+        hi = grouped.transform("quantile", percentile, interpolation="higher")
+        lin = grouped.transform("quantile", percentile, interpolation="linear")
+        # Linear interpolation next to an infinity can give NaN; the reference gives the infinite neighbour (lo + hi).
+        either_inf = np.isinf(lo) | np.isinf(hi)
+        data[feature_name] = np.where(lo == hi, lo, np.where(either_inf, lo + hi, lin))
         if mask_spec is not None:
             data = data.drop(columns=[agg_source])
         return data

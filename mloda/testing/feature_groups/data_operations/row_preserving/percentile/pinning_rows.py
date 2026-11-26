@@ -193,5 +193,13 @@ PERCENTILE_PINNING = PinningTable(
             expected={"v__p25_percentile": (_D, (-INF,) * 3)},
             context=_CTX,
         ),
+        PinningRow(
+            case="endpoints",
+            feature="v__p75_percentile",
+            inputs={"p": (_S, ("a",) * 3), "v": (_D, (-INF, 1.0, INF))},
+            # an infinite upper neighbour gives that infinity, like pc.quantile
+            expected={"v__p75_percentile": (_D, (INF,) * 3)},
+            context=_CTX,
+        ),
     ),
 )

@@ -74,7 +74,7 @@ _FLOAT_TYPES = ("FLOAT", "DOUBLE")
 NARROW_INTEGER_TYPES = frozenset({"TINYINT", "SMALLINT", "INTEGER", "UTINYINT", "USMALLINT", "UINTEGER"})
 
 
-def _is_float(data: "DuckdbRelation", source_col: str) -> bool:
+def is_float(data: "DuckdbRelation", source_col: str) -> bool:
     """Whether ``source_col`` is a DuckDB FLOAT/DOUBLE column."""
     return column_types(data).get(source_col, "").upper() in _FLOAT_TYPES
 
@@ -116,15 +116,15 @@ def nan_policy_agg_sql(
             raise ValueError("DuckDB mode needs a row-position order for first-occurrence ties")
         return f"MODE(CASE WHEN {source_sql} IS NOT NULL THEN struct_pack(v := {source_sql}) END ORDER BY {order_sql})"
 
-    is_float = _is_float(data, source_col)
+    float_source = is_float(data, source_col)
 
-    if is_float and agg_type == "median":
+    if float_source and agg_type == "median":
         return f"{agg_func}({nan_to_null_sql(source_sql, column_types(data).get(source_col, ''))})"
-    if is_float and agg_type == "max":
+    if float_source and agg_type == "max":
         return f"-MIN(-({source_sql}))"
-    if is_float and agg_type in _FLOAT_STD_TO_VAR:
+    if float_source and agg_type in _FLOAT_STD_TO_VAR:
         return f"SQRT({nan_policy_agg_sql(data, source_col, source_sql, _FLOAT_STD_TO_VAR[agg_type], agg_func)})"
-    if is_float and agg_type in _FLOAT_VAR_COVAR:
+    if float_source and agg_type in _FLOAT_VAR_COVAR:
         return f"{_FLOAT_VAR_COVAR[agg_type]}({source_sql}, {source_sql})"
     return f"{agg_func}({source_sql})"
 
@@ -144,7 +144,7 @@ def nan_policy_window(
     ``window()`` takes a single aggregate call, so std passes the variance call in and
     wraps the resulting column in ``SQRT`` afterward.
     """
-    var_type = _FLOAT_STD_TO_VAR.get(agg_type) if _is_float(data, source_col) else None
+    var_type = _FLOAT_STD_TO_VAR.get(agg_type) if is_float(data, source_col) else None
     agg_call = nan_policy_agg_sql(data, source_col, source_sql, var_type or agg_type, agg_func, order_sql)
     result = data.window(agg_call, feature_name, **window_kwargs)
 

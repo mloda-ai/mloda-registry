@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Any
 
 import pytest
@@ -28,14 +27,6 @@ class TestPolarsLazyRank(CapabilityHookTestMixin, ReservedColumnsTestMixin, Pola
     @classmethod
     def implementation_class(cls) -> Any:
         return PolarsLazyRank
-
-    @classmethod
-    def pinned_divergences(cls) -> Mapping[str, Mapping[str, list[Any]]]:
-        return {
-            **super().pinned_divergences(),
-            # NaN sorts above every real value in descending order, so top_2 selects NaN and 3.0 instead of 3.0 and 2.0.
-            "13-top_bottom-o__top_2_ranked": {"o__top_2_ranked": [False, True, True, False, False]},
-        }
 
     @classmethod
     def capability_supported(cls) -> tuple[tuple[str, Options], ...]:

@@ -694,25 +694,6 @@ regression_test:
 - **Mitigation kind**: Accepted divergence. Group order is not part of the result contract and both backends sort natively.
 - **Regression signal**: each twin's `test_mixin_pinned_row` pins the sorted rows.
 
-### Pandas and Polars lazy percentile interpolation over an infinity
-
-<!-- machine-checked
-operation: percentile
-framework: pandas, polars_lazy
-condition: Pandas' numpy lerp gives NaN, stored as null, at an integral position next to an infinity or when the upper neighbour is infinite; Polars lazy gives NaN when the lower neighbour is -inf; the reference returns the infinite neighbour or the exact value
-mitigation_location:
-- mloda/community/feature_groups/data_operations/row_preserving/percentile/pandas_percentile.py
-- mloda/community/feature_groups/data_operations/row_preserving/percentile/polars_lazy_percentile.py
-regression_test:
-- mloda/community/feature_groups/data_operations/row_preserving/percentile/tests/test_pandas.py::TestPandasPercentile::test_mixin_pinned_row
-- mloda/community/feature_groups/data_operations/row_preserving/percentile/tests/test_polars_lazy.py::TestPolarsLazyPercentile::test_mixin_pinned_row
--->
-
-- **Operations**: `percentile` over a partition holding an infinity. Pandas rows 4 to 7 (rows 4 and 6 come from `inf * 0` at an integral position; row 6's reference is the exact middle value 1.0, not a median of equal infinities); Pandas row 21 (p25 of `[-inf, 1, inf]`) returns -inf and agrees with the reference; Polars lazy row 21 gives NaN.
-- **Native behavior**: Pandas gives NaN (stored as null) at an integral position next to an infinity (`inf * 0`) or when the upper neighbour is infinite (`inf - inf`), where the reference returns the endpoint or the exact value. Polars gives NaN only when the lower neighbour is -inf (`quantile(0.25, "linear")` of `[-inf, 1, inf]`), where `pc.quantile`, DuckDB and PythonDict return `-inf`; `[1, inf]` at q=0.5 gives `inf` on Polars.
-- **Mitigation kind**: Accepted divergence. Infinite percentile input is rare.
-- **Regression signal**: each twin's `test_mixin_pinned_row` pins the backend value.
-
 ### SQLite, Polars lazy and DuckDB 1.x return a merged signed-zero key as +0.0
 
 <!-- machine-checked
@@ -735,25 +716,6 @@ regression_test:
 - **Native behavior**: the group key is normalised to `0.0`, so the negative sign of a first-seen `-0.0` is lost. The groups themselves merge correctly, unlike [PyArrow](#pyarrow-splits-00-and--00). DuckDB 2 keeps the sign.
 - **Mitigation kind**: Accepted divergence. The sign of a zero key does not affect grouped arithmetic.
 - **Regression signal**: each twin's `test_mixin_pinned_row` pins the `0.0` key.
-
-### DuckDB and Polars lazy top_N rank NaN above every real value
-
-<!-- machine-checked
-operation: rank
-framework: duckdb, polars_lazy
-condition: DuckDB and Polars sort NaN as the largest value in descending order, so top_N selects NaN; the reference selects the highest real values
-mitigation_location:
-- mloda/community/feature_groups/data_operations/row_preserving/rank/duckdb_rank.py
-- mloda/community/feature_groups/data_operations/row_preserving/rank/polars_lazy_rank.py
-regression_test:
-- mloda/community/feature_groups/data_operations/row_preserving/rank/tests/test_duckdb.py::TestDuckdbRank::test_mixin_pinned_row
-- mloda/community/feature_groups/data_operations/row_preserving/rank/tests/test_polars_lazy.py::TestPolarsLazyRank::test_mixin_pinned_row
--->
-
-- **Operations**: `rank` `top_N` on a float column holding NaN. `top_2` over `[1.0, NaN, 3.0, None, 2.0]` selects NaN and 3.0 instead of 3.0 and 2.0.
-- **Native behavior**: both engines order NaN as the largest value, so a descending sort puts it first.
-- **Mitigation kind**: Accepted divergence, not a `divergences` record: a record would move every `top_N` feature off both backends for a rare input (a record would move every such feature off the backend for a rare data condition).
-- **Regression signal**: each twin's `test_mixin_pinned_row` pins the selection.
 
 ### Integer arithmetic does not raise on overflow
 
