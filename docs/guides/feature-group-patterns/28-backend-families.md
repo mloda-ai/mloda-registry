@@ -132,7 +132,7 @@ Reference: rag_integration's seven connector families (retrieve, rerank, generat
 
 ## Way 3: Reader Delegation (Sibling Readers)
 
-The siblings are source FeatureGroups (`SourceFeatureGroup` subclasses) that claim a request by the credential slot the `DataAccessCollection` holds. The base owns matching and calls `find_sources` on each claim route; override `match_feature_group_criteria` only to narrow a declared prefix (below). An abstract family base declines; each concrete leaf matches itself.
+The siblings are source FeatureGroups (`SourceFeatureGroup` subclasses) that claim a request by the credential slot the `DataAccessCollection` holds. The base owns matching and calls `find_sources` on each claim route, so the siblings need no `match_feature_group_criteria` of their own. An abstract family base declines; each concrete leaf matches itself.
 
 ```python
 from typing import Any, ClassVar
@@ -211,7 +211,7 @@ Rules:
 - **Leaves never compete.** `KgSourceFG` is abstract (it leaves `load_neutral` unimplemented), so it declines. Each leaf finds only its own `CONNECTOR_ID` slot; two leaves whose slots are both in the collection are ordinary feature-group ambiguity, resolved by `data_access_handle` or `feature_group=`.
 - **Report the bound handle.** `match_credentials` returns the registered slot itself, so the plan, the lock and hook contexts name its handle; the leaf sees the whole entry, so register one connector per handle. To carry another value (a URL, a parsed sub-entry) next to the entry, wrap both in an access object and still return the entry from `match_credentials` (see [`UbaAccess`](27-input-data-readers.md#binding-a-collection-credential) and [Credentials](27-input-data-readers.md#credentials-bound-at-match-time-or-read-at-run-time)).
 - **Choose the claim route deliberately.** An `OPEN` route must be `searched=False` (core raises `TypeError` otherwise): it claims any name only when the user points at the group (`options={"RdfLibSparqlFeatureGroup": ...}` or `feature_group=`) or when a `required_options` key such as `query_text` is present, as above. To claim by name instead, use `NamePolicy.CHECKED` with `columns`/`has_column`, or `NamePolicy.DECLARED` with `declared_names()` or `declared_name_prefixes()`.
-- **A declared prefix also claims chains on it.** `declared_name_prefixes()` returning `("rdflib_sparql__",)` claims `rdflib_sparql__x__sum_aggr` too. Until core handles it, override `match_feature_group_criteria` to decline names with a further `__` before calling `super()`.
+- **A declared prefix claims one name segment.** `declared_name_prefixes()` returning `("rdflib_sparql__",)` claims `rdflib_sparql__x` and declines `rdflib_sparql__x__sum_aggr`, a name with a further `__` after the prefix, so the chain goes to the group that computes it. Core does this itself; no matcher override is needed.
 - **Database-shaped families.** Derive from `ReadDBFG` when the source is a table catalog: it brings credential discovery, per-run catalog caching, `login_key` and the optional `ReadDBFG.QUERY_ROUTE`. Implement `is_valid_credentials` (the slot check), `database_identity`, `connect`, `list_tables`, `table_columns` and `produce_rows`.
 - **Decline what you cannot serve.** Ownership established but content failing is a recorded decline ([Decline Names You Cannot Confirm](27-input-data-readers.md#decline-names-you-cannot-confirm)); a plain non-match stays silent.
 - **Pick one route per family.** A class-name pointer (`options={"RdfLibSparqlFeatureGroup": value}`) is final against other groups and the collection, and the leaf above has no route for it without `query_text`: it declines with `was pointed at but found no source`. Decide whether the family serves pointers, credentials or both, and test that route.
@@ -220,7 +220,7 @@ Rules:
 Reference: open-kgo's [`kg/feature_group.py`](https://github.com/mloda-ai/open-kgo/blob/main/open_kgo/feature_groups/kg/feature_group.py) and its nine connector families, e.g. [`kg/rdf/rdflib_sparql.py`](https://github.com/mloda-ai/open-kgo/blob/main/open_kgo/feature_groups/kg/rdf/rdflib_sparql.py):
 
 - The family base stays abstract through an abstract `READER_CLASS`; each concrete only pins `READER_CLASS`.
-- One `NamePolicy.DECLARED` route with `declared_name_prefixes()` (`<CONNECTOR_ID>__`), plus the chain-declining override above.
+- One `NamePolicy.DECLARED` route with `declared_name_prefixes()` (`<CONNECTOR_ID>__`), with no matcher override: core declines the chained names.
 - `query_text` is a required option only on query families (rdf, network_pg, agent_memory).
 - `find_sources` narrows the collection by `data_access_handle`; two credentials for one source get `@handle` sources, so they abort as ambiguous instead of picking the first.
 
