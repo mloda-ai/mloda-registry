@@ -915,6 +915,26 @@ regression_test:
 - **How**: The SQLite test class overrides `rejects_non_utc_source()`, so `test_mixin_pinned_row` asserts the up-front `ValueError` for non-UTC rows.
 - **Regression signal**: The rejection test fails if SQLite starts accepting such a column.
 
+### SQLite time bucketization accepts ISO 8601 text with a time of day
+
+<!-- machine-checked
+operation: time_bucketization
+framework: sqlite
+condition: a TEXT source holding ISO 8601 date-and-time values is accepted as a timestamp, while the reference rejects a string source
+mitigation_location:
+- mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/sqlite_time_bucketization.py
+regression_test:
+- mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/tests/test_sqlite.py::TestSqliteSourceShapes::test_accepted_value_bucketed
+- mloda/community/feature_groups/data_operations/row_preserving/time_bucketization/tests/test_sqlite.py::TestSqliteSourceShapes::test_non_timestamp_value_rejected
+-->
+
+- **Operations**: `time_bucketization`.
+- **Reference behavior**: A string source raises `ValueError` as a non-timestamp column.
+- **Native SQLite behavior**: SQLite has no timestamp type, so after ingest every timestamp column is TEXT and a string column cannot be told apart from it. A TEXT value in ISO 8601 form with a time of day is bucketed; non-text, date-only, time-only and padded values are rejected.
+- **Mitigation kind**: Accepted divergence. The column type is lost on ingest, before any op runs.
+- **How**: The SQLite source check inspects the values instead of the type. Not declared in `divergences`: a `gap` record would name no op condition and would flag every SQLite time bucketization plan, since a timestamp column is always TEXT there ([When to add](#when-to-add-to-this-page)).
+- **Regression signal**: `test_accepted_value_bucketed` fails if such text stops being bucketed, and `test_non_timestamp_value_rejected` fails if date-only or time-only text starts being accepted.
+
 ---
 
 ## Declared divergence records

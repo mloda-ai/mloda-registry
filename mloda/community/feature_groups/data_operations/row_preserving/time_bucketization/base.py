@@ -221,6 +221,14 @@ class TimeBucketizationFeatureGroup(FeatureChainParserMixin, OperationFeatureGro
             f"Source column {source_col!r} must be a timestamp/datetime for time bucketization; got {got}."
         )
 
+    @staticmethod
+    def _raise_boundary_out_of_range(source_col: str, value: object) -> None:
+        """Shared error for a bucket boundary outside the source timestamp's representable range."""
+        raise ValueError(
+            f"Bucket boundary for source column {source_col!r} is outside the representable "
+            f"timestamp range (source value {value})."
+        )
+
     @classmethod
     def bucketize(
         cls,

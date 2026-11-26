@@ -59,6 +59,28 @@ class TestDuckdbDateSourceRejected:
         with pytest.raises(ValueError, match=r"(?i)timestamp|datetime|DATE"):
             calculate_with(DuckdbTimeBucketization, rel, fs)
 
+    def test_timestamptz_ns_column_rejected(self) -> None:
+        """A TIMESTAMPTZ_NS source is rejected up front, naming the column and the type."""
+        from datetime import datetime, timezone
+
+        import duckdb
+        import pyarrow as pa
+        from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation import DuckdbRelation
+
+        from mloda.community.feature_groups.data_operations.duckdb_helpers import column_types
+        from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+
+        con = duckdb.connect(":memory:")
+        table = pa.table(
+            {"ts": pa.array([datetime(2023, 1, 1, tzinfo=timezone.utc)], type=pa.timestamp("ns", tz="UTC"))}
+        )
+        rel = DuckdbRelation.from_arrow(con, table)
+        if "TIMESTAMPTZ_NS" not in column_types(rel)["ts"].upper():
+            pytest.skip("this DuckDB does not map a tz-aware ns column to TIMESTAMPTZ_NS")
+        fs = make_feature_set("ts__floor_1_day")
+        with pytest.raises(ValueError, match=r"(?s)'ts'.*TIMESTAMPTZ_NS"):
+            calculate_with(DuckdbTimeBucketization, rel, fs)
+
 
 class TestDuckdbTimeBucketizationCalendarRound:
     """Calendar-unit ROUND (week / month / year), which the shared base does not cover.

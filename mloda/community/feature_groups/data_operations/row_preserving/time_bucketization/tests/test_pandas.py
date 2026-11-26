@@ -13,7 +13,7 @@ import pandas as pd
 from mloda.community.feature_groups.data_operations.row_preserving.time_bucketization.pandas_time_bucketization import (
     PandasTimeBucketization,
 )
-from mloda.testing.feature_groups.data_operations.helpers import calculate_with
+from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.frameworks import (
     PandasNullableIntTestMixin,
     PandasTestMixin,
@@ -72,3 +72,11 @@ class TestPandasCalendarRoundDtype:
             f"Expected datetime64 dtype for round_1_year, got {result['timestamp__round_1_year'].dtype!r}"
         )
         assert str(result["timestamp__round_1_year"].dt.tz) == "UTC"
+
+    @pytest.mark.parametrize("bucket_op", ["floor_1_month", "ceil_1_year"])
+    def test_ms_source_keeps_unit(self, bucket_op: str) -> None:
+        """A calendar unit on a datetime64[ms] source keeps the ms unit instead of widening to us."""
+        data = pd.DataFrame({"ts": pd.Series(pd.to_datetime(["2023-06-15 14:37:23", None])).astype("datetime64[ms]")})
+        fs = make_feature_set(f"ts__{bucket_op}")
+        result = calculate_with(PandasTimeBucketization, data, fs)
+        assert str(result[f"ts__{bucket_op}"].dtype) == "datetime64[ms]"

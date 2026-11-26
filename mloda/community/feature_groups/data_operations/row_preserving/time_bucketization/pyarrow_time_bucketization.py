@@ -59,6 +59,8 @@ class PyArrowTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
         unit: str,
     ) -> pa.Table:
         column = data.column(source_col)
+        if column.type.unit == "ns":
+            cls._assert_boundaries_in_range(column, source_col, op, n, unit)
 
         if op == "floor":
             result = cls._floor(column, n, unit)
@@ -74,6 +76,21 @@ class PyArrowTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
             raise ValueError(f"Unsupported bucket op {op!r} for PyArrow; supported: {sorted(TIME_BUCKETIZATION_OPS)}.")
 
         return data.append_column(feature_name, result)
+
+    @classmethod
+    def _assert_boundaries_in_range(cls, column: Any, source_col: str, op: str, n: int, unit: str) -> None:
+        """Reject ns sources whose boundary wrapped modulo 2^64 (floor above, ceil / next boundary below the source)."""
+        bad = pc.greater(cls._floor(column, n, unit), column)
+        if op == "ceil":
+            bad = pc.or_kleene(bad, pc.less(cls._ceil(column, n, unit), column))
+        elif op == "round":
+            upper = pc.ceil_temporal(
+                column, multiple=n, unit=unit, week_starts_monday=True, ceil_is_strictly_greater=True
+            )
+            bad = pc.or_kleene(bad, pc.less(upper, column))
+        bad = pc.fill_null(bad, False)
+        if pc.any(bad).as_py():
+            TimeBucketizationFeatureGroup._raise_boundary_out_of_range(source_col, pc.filter(column, bad)[0].as_py())
 
     @staticmethod
     def _floor(column: Any, n: int, unit: str) -> Any:

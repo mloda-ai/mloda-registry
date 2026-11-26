@@ -43,6 +43,9 @@ _DUCKDB_TIMESTAMP_PREFIXES: tuple[str, ...] = (
     "DATETIME",
 )
 
+# DuckDB has no date_trunc / time_bucket kernel for TIMESTAMPTZ_NS (plain TIMESTAMP WITH TIME ZONE is fine).
+_UNSUPPORTED_TIMESTAMP_TYPE = "TIMESTAMPTZ_NS"
+
 
 def _bucket_seconds_for_fixed_freq(n: int, unit: str) -> int:
     """Length of one ``(n, unit)`` bucket in seconds (fixed-freq only)."""
@@ -88,6 +91,11 @@ class DuckdbTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
         upper = dtype_str.upper()
         if not any(upper == p or upper.startswith(p) for p in _DUCKDB_TIMESTAMP_PREFIXES):
             TimeBucketizationFeatureGroup._raise_non_timestamp_source(source_col, dtype_str)
+        if upper == _UNSUPPORTED_TIMESTAMP_TYPE:
+            raise ValueError(
+                f"Source column {source_col!r} has type {dtype_str}, which DuckDB cannot bucketize; "
+                f"cast it to TIMESTAMPTZ (microseconds) first."
+            )
 
     @classmethod
     def _compute_bucket(
@@ -127,9 +135,22 @@ class DuckdbTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
 
         # Cast keeps the source unit (DATE_TRUNC and interval math return TIMESTAMP us).
         source_type = column_types(data)[source_col]
+        if source_type.upper() == "TIMESTAMP_NS":
+            cls._assert_boundaries_in_range(data, source_col, quoted_source, op, floor_sql, ceil_next)
         raw_sql = f"*, CAST(({result_expr}) AS {source_type}) AS {quoted_feature}"
         result: DuckdbRelation = data.project(raw_sql)
         return result
+
+    @staticmethod
+    def _assert_boundaries_in_range(
+        data: DuckdbRelation, source_col: str, quoted_source: str, op: str, floor_sql: str, ceil_next: str
+    ) -> None:
+        """Reject a TIMESTAMP_NS source whose boundary (computed in us) does not fit in ns, before any ns upcast."""
+        boundaries = [floor_sql] if op == "floor" else [floor_sql, ceil_next]
+        bad = " OR ".join(f"(TRY_CAST({b} AS TIMESTAMP_NS) IS NULL AND {b} IS NOT NULL)" for b in boundaries)
+        offenders = data.filter(bad).project(quoted_source).limit(1).to_arrow_table()
+        if offenders.num_rows:
+            TimeBucketizationFeatureGroup._raise_boundary_out_of_range(source_col, offenders.column(0)[0].as_py())
 
     @classmethod
     def _round_expression(
