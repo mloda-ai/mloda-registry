@@ -931,8 +931,8 @@ regression_test:
 - **Operations**: `time_bucketization`.
 - **Reference behavior**: A string source raises `ValueError` as a non-timestamp column.
 - **Native SQLite behavior**: SQLite has no timestamp type, so after ingest every timestamp column is TEXT and a string column cannot be told apart from it. A TEXT value in ISO 8601 form with a time of day is bucketed; non-text, date-only, time-only and padded values are rejected.
-- **Mitigation kind**: Accepted divergence. The column type is lost on ingest, before any op runs.
-- **How**: The SQLite source check inspects the values instead of the type. Not declared in `divergences`: a `gap` record would name no op condition and would flag every SQLite time bucketization plan, since a timestamp column is always TEXT there ([When to add](#when-to-add-to-this-page)).
+- **Mitigation kind**: Accepted divergence. The column type is lost on ingest.
+- **How**: The SQLite source check inspects the values instead of the type. Not declared in `divergences`, since a `gap` record would flag every SQLite time bucketization plan ([When to add](#when-to-add-to-this-page)).
 - **Regression signal**: `test_accepted_value_bucketed` fails if such text stops being bucketed, and `test_non_timestamp_value_rejected` fails if date-only or time-only text starts being accepted.
 
 ---

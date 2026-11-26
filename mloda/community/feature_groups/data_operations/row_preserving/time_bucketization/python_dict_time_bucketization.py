@@ -216,7 +216,7 @@ class PythonDictTimeBucketization(Implementation[TimeBucketizationFeatureGroup])
 
     @staticmethod
     def _bucket_value(fn: Any, op: str, value: Any, n: int, unit: str, source_col: str) -> Any:
-        """Bucket one value; a boundary outside the representable range raises via the shared helper."""
+        """Bucket one value, raising when a boundary falls outside the representable range."""
         if value is None:
             return None
         is_ns = getattr(value, "unit", None) == "ns"  # duck-typed pd.Timestamp, no pandas import
