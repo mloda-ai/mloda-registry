@@ -52,7 +52,7 @@ class DuckdbRank(Implementation[RankFeatureGroup]):
             # The boolean comparison wraps a ROW_NUMBER() window, so compute the
             # row number into a helper column first, then project the comparison
             # (no OVER). DESC for top_, ASC for bottom_; input position breaks ties.
-            def top_n_window(rel: DuckdbRelation, rn: str) -> DuckdbRelation:
+            def cut_window(rel: DuckdbRelation, rn: str) -> DuckdbRelation:
                 rank_rn = pick_helper_column_name(taken=set(rel.columns) | {feature_name})
                 qhelper = quote_ident(rank_rn)
                 row_order = [OrderBy(order_by, descending=is_top, nulls="last")]
@@ -67,7 +67,7 @@ class DuckdbRank(Implementation[RankFeatureGroup]):
                 keep = ", ".join(quote_ident(c) for c in rel.columns if c not in (rank_rn, nan_flag))
                 return rel.project(f"{keep}, ({qhelper} <= {n_val}) AS {quote_ident(feature_name)}")
 
-            return with_input_position(data, feature_name, top_n_window)
+            return with_input_position(data, feature_name, cut_window)
 
         if rank_type.startswith("ntile_"):
             ntile_n = int(rank_type[len("ntile_") :])
