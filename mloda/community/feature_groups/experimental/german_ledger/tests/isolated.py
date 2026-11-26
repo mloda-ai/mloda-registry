@@ -134,45 +134,25 @@ def _revenue(folder: Path, plugin_collector: Any = None) -> str:
 
 
 def collision() -> dict[str, Any]:
-    """The name gate keeps a widened reader off a part name; core keeps it off the chain name."""
+    """A reader widened to declare every name takes a part name; core keeps it off the chain name."""
     from mloda.community.feature_groups.experimental.german_ledger.tests import _host  # noqa: F401
     from mloda.community.feature_groups.experimental.german_ledger.tests._host import PLUGINS
 
     class WideReader(GdpduReader):
-        """Declares every name, keeps the inherited name gate."""
+        """Declares every name."""
 
         @classmethod
         def declared_name_prefixes(cls) -> tuple[str, ...]:
             return ("",)
 
-    class PermissiveReader(WideReader):
-        """Declares every name and does not gate on its own."""
-
-        @classmethod
-        def match_feature_group_criteria(
-            cls, feature_name: Any, options: Any, data_access_collection: Any = None
-        ) -> bool:
-            unbound: Any = FeatureGroup.match_feature_group_criteria
-            return bool(unbound.__func__(cls, feature_name, options, data_access_collection))
-
-    # Each leg enables its subclass in place of the stock reader.
-    others = PLUGINS.enabled_feature_group_classes - {GdpduReader}
-    gated_groups: set[type[FeatureGroup]] = {*others, WideReader}
-    ungated_groups: set[type[FeatureGroup]] = {*others, PermissiveReader}
-    gated_collector = PluginCollector.enabled_feature_groups(gated_groups)
-    ungated_collector = PluginCollector.enabled_feature_groups(ungated_groups)
+    groups: set[type[FeatureGroup]] = {*(PLUGINS.enabled_feature_group_classes - {GdpduReader}), WideReader}
+    collector = PluginCollector.enabled_feature_groups(groups)
     dossier = FIX / "dossier_a"
 
-    def owner(groups: set[Any]) -> str | None:
-        return getattr(claimant([dossier], "revenue~value", groups), "__name__", None)
-
     return {
-        "gated_owner": owner(gated_groups),
-        "ungated_owner": owner(ungated_groups),
-        "gated": outcome(lambda: sorted(_run(dossier, ["revenue~value"], gated_collector))),
-        "ungated": outcome(lambda: sorted(_run(dossier, ["revenue~value"], ungated_collector))),
-        "gated_chain": outcome(lambda: _revenue(dossier, gated_collector)),
-        "ungated_chain": outcome(lambda: _revenue(dossier, ungated_collector)),
+        "owner": getattr(claimant([dossier], "revenue~value", groups), "__name__", None),
+        "part": outcome(lambda: sorted(_run(dossier, ["revenue~value"], collector))),
+        "chain": outcome(lambda: _revenue(dossier, collector)),
     }
 
 

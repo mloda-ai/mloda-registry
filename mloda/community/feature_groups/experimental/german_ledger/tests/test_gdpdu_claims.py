@@ -74,8 +74,8 @@ def _drop_column(dossier: Path, name: str) -> None:
 FIX = HERE / "fixtures"
 
 
-def test_collision_gate() -> None:
-    """The name gate keeps a claim-all reader off a part name; core keeps it off the chain name."""
+def test_name_collisions() -> None:
+    """A reader widened to declare every name takes a part name; core keeps it off the chain name."""
     assert SkrAccountFeatureGroup.match_feature_group_criteria("revenue__sources", Options()) is False
     assert (
         SourcesFeatureGroup.match_feature_group_criteria(
@@ -92,11 +92,9 @@ def test_collision_gate() -> None:
     assert claimed("revenue__sources") is None
 
     facts = run_isolated("collision")
-    assert facts["gated"] == ["revenue~value"], facts
-    assert facts["gated_owner"] == "SkrAccountFeatureGroup", facts
-    assert facts["ungated_owner"] == "PermissiveReader", facts
-    assert isinstance(facts["ungated"], str), facts
-    assert facts["gated_chain"] == facts["ungated_chain"] == "45385.06", facts
+    assert facts["owner"] == "WideReader", facts
+    assert "WideReader did not produce" in str(facts["part"]), facts
+    assert facts["chain"] == "45385.06", facts
 
 
 @pytest.mark.parametrize(

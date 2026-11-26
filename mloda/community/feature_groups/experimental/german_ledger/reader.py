@@ -577,24 +577,6 @@ class _ReaderJournal(ClassifiedReader, SourceFeatureGroup):
         return frozenset({JOURNAL})
 
     @classmethod
-    def match_feature_group_criteria(
-        cls,
-        feature_name: Any,
-        options: Options,
-        data_access_collection: DataAccessCollection | None = None,
-    ) -> bool:
-        """Names other than JOURNAL decline; a pointed reader lets core record only names it sees as undeclared."""
-        base = cls.get_column_base_feature(str(feature_name))
-        if base != JOURNAL:
-            core_declared = cls.feature_name_equal_to_class_name(
-                base
-            ) or cls.feature_name_contains_class_name_as_prefix(base)
-            if not core_declared and any(key in options for key in cls.pointer_keys()):
-                super().match_feature_group_criteria(feature_name, options, data_access_collection)
-            return False
-        return super().match_feature_group_criteria(feature_name, options, data_access_collection)
-
-    @classmethod
     def compute_framework_rule(cls) -> Any:
         return {PyArrowTable}
 

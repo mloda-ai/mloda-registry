@@ -156,7 +156,7 @@ def test_pinning_a_reader_by_option_key_resolves_a_mixed_collection(
     pin = {reader: str(_twin_pair()[0 if reader == "GdpduReader" else 1])}
     origins = _journal_origins(_resolve(_twin_pair(), "ledger_journal", pin, journals=True))
     assert origins and all(o.startswith(scheme) for o in origins), origins
-    # Core counts the class name and a prefix of it as declared; a pointed reader must still decline them.
+    # A pointed reader declines its class name and a prefix of it without probing the source or touching the options.
     cls = {"GdpduReader": GdpduReader, "DatevExtfReader": DatevExtfReader}[reader]
     probed: list[str] = []
     real_find_sources = cls.find_sources.__func__  # type: ignore[attr-defined]
@@ -373,6 +373,10 @@ class _JournalReaderSuite(SourceFeatureGroupTestMixin, suite_base=True):
     own_folder: Path
     own_kind_other_folder: Path
     foreign_folder: Path
+
+    def undeclared_names(self) -> list[str]:
+        name = self.feature_group_class.get_class_name()
+        return [*super().undeclared_names(), name, f"{name}_x"]
 
     def own_dac(self) -> DataAccessCollection:
         return DataAccessCollection(folders={str(self.own_folder)})
