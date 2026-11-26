@@ -23,6 +23,25 @@ class TestPythonDictTimeBucketization(PythonDictTestMixin, TimeBucketizationTest
     def implementation_class(cls) -> Any:
         return PythonDictTimeBucketization
 
+    @classmethod
+    def holds_wall_clock_past_nanosecond_range(cls) -> bool:
+        return False
+
+    def test_wall_clock_past_nanosecond_range_still_unsupported(self) -> None:
+        """Pins core's ValueError for a tz-aware ns value past the ns range locally; flags when core can hold it."""
+        from datetime import datetime, timezone
+        from zoneinfo import ZoneInfo
+
+        import pyarrow as pa
+        from mloda.user import DataType
+
+        from mloda.testing.typed_data import TypedTestData
+
+        instant = datetime(2262, 4, 11, 20, tzinfo=timezone.utc).astimezone(ZoneInfo("Asia/Tokyo"))
+        data = TypedTestData({"ts": (DataType.TIMESTAMP_MICROS_TZ, [instant])})
+        with pytest.raises(ValueError):
+            self.create_test_data(data, arrow_types={"ts": pa.timestamp("ns", tz="Asia/Tokyo")})
+
     # -- Non-divisor bucket sizes (epoch-anchored floor regression guards) --
 
     def test_cross_framework_non_divisor_minute_bucket(self) -> None:

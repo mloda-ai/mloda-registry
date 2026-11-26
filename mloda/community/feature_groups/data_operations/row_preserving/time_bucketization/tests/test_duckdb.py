@@ -38,7 +38,7 @@ class TestDuckdbTimeBucketization(DuckdbTestMixin, TimeBucketizationTestBase):
 
 
 class TestDuckdbDateSourceRejected:
-    """DATE source columns are rejected up-front with a clear ValueError.
+    """DATE and TIMESTAMPTZ_NS source columns are rejected up-front with a clear ValueError.
 
     DuckDB has a native DATE type, but it is intentionally absent from
     _DUCKDB_TIMESTAMP_PREFIXES, so _assert_source_column_is_timestamp

@@ -66,7 +66,7 @@ class PolarsLazyTimeBucketization(Implementation[TimeBucketizationFeatureGroup])
         col = pl.col(source_col)
         duration = duration_token(n, unit)
         if getattr(data.collect_schema()[source_col], "time_unit", None) == "ns":
-            cls._assert_boundaries_in_range(data, source_col, op, duration, unit)
+            cls._assert_boundaries_in_range(data, source_col, n, unit)
 
         if op == "floor":
             expr = col.dt.truncate(duration)
@@ -80,19 +80,13 @@ class PolarsLazyTimeBucketization(Implementation[TimeBucketizationFeatureGroup])
 
         return data.with_columns(expr.alias(feature_name))
 
-    @classmethod
-    def _assert_boundaries_in_range(
-        cls, data: pl.LazyFrame, source_col: str, op: str, duration: str, unit: str
-    ) -> None:
-        """Reject ns sources whose boundary wrapped modulo 2^64 (floor above, ceil / next boundary below the source)."""
+    @staticmethod
+    def _assert_boundaries_in_range(data: pl.LazyFrame, source_col: str, n: int, unit: str) -> None:
+        """Reject ns values within bucket width + 7 days of the representable range edge."""
+        lo, hi = TimeBucketizationFeatureGroup._nanosecond_safe_window(n, unit)
         col = pl.col(source_col)
-        floored, upper = cls._floor_and_upper(col, duration)
-        bad = floored > col
-        if op == "ceil":
-            bad = bad | (cls._ceil_expr(col, duration, unit) < col)
-        elif op == "round":
-            bad = bad | (upper < col)
-        offenders = data.filter(bad.fill_null(False)).select(col).head(1).collect()
+        epoch = col.dt.epoch("ns")
+        offenders = data.filter(((epoch < lo) | (epoch > hi)).fill_null(False)).select(col).head(1).collect()
         if offenders.height:
             TimeBucketizationFeatureGroup._raise_boundary_out_of_range(source_col, offenders.item())
 

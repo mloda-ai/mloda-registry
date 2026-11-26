@@ -90,7 +90,7 @@ SQLite minute / hour / day buckets use integer epoch microseconds of the wall cl
 
 ## Range edge
 
-On a nanosecond source (PyArrow, Pandas, Polars, DuckDB `TIMESTAMP_NS`, PythonDict `pd.Timestamp` values) a bucket boundary can fall outside the representable range (before 1677-09-21 or after 2262-04-11). Every op needs its floor in range, `ceil` also its result, and `round` also the next boundary, so a row in a bucket straddling the edge is rejected. Such a row raises a `ValueError` naming the column and a sample value instead of returning a wrapped value. Millisecond and microsecond sources are unaffected.
+On a nanosecond source (PyArrow, Pandas, Polars, DuckDB `TIMESTAMP_NS`, PythonDict `pd.Timestamp` values) a row is rejected when its value (UTC instant, a naive value read as UTC) lies within the bucket width plus 7 days of the representable range (1677-09-21 to 2262-04-11); the width is `n * unit` for minute/hour/day and 7, 31 and 366 days for week, month and year. The `ValueError` names the column and the first offending value, so no kernel can return a wrapped boundary; millisecond and microsecond sources are unaffected.
 
 ---
 

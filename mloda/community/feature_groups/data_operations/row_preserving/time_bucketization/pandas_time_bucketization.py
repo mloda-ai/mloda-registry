@@ -105,14 +105,15 @@ class PandasTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
 
         if op not in TIME_BUCKETIZATION_OPS:
             raise ValueError(f"Unsupported bucket op {op!r} for Pandas; supported: {sorted(TIME_BUCKETIZATION_OPS)}.")
-        try:
-            if col.dt.unit == "ns":
-                cls._floor_series(col, n, unit)  # every op needs its floor in range
-            result = getattr(cls, f"_{op}_series")(col, n, unit)
-            # Calendar units widen to us; cast back to the source unit (raises when out of range).
-            result = result.dt.as_unit(col.dt.unit)
-        except (OverflowError, pd.errors.OutOfBoundsDatetime):
-            TimeBucketizationFeatureGroup._raise_boundary_out_of_range(source_col, col.dropna().iloc[0])
+        if col.dt.unit == "ns":
+            lo, hi = TimeBucketizationFeatureGroup._nanosecond_safe_window(n, unit)
+            utc = col.dt.tz_convert(None) if col.dt.tz is not None else col
+            bad = (utc < pd.Timestamp(lo, unit="ns")) | (utc > pd.Timestamp(hi, unit="ns"))
+            if bad.any():
+                TimeBucketizationFeatureGroup._raise_boundary_out_of_range(
+                    source_col, utc[bad].iloc[0]
+                )  # UTC: a local repr can overflow
+        result = getattr(cls, f"_{op}_series")(col, n, unit).dt.as_unit(col.dt.unit)  # keep the source unit
 
         data[feature_name] = result
         return data

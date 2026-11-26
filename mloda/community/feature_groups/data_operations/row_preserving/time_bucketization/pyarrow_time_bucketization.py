@@ -60,7 +60,7 @@ class PyArrowTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
     ) -> pa.Table:
         column = data.column(source_col)
         if column.type.unit == "ns":
-            cls._assert_boundaries_in_range(column, source_col, op, n, unit)
+            cls._assert_boundaries_in_range(column, source_col, n, unit)
 
         if op == "floor":
             result = cls._floor(column, n, unit)
@@ -78,19 +78,14 @@ class PyArrowTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
         return data.append_column(feature_name, result)
 
     @classmethod
-    def _assert_boundaries_in_range(cls, column: Any, source_col: str, op: str, n: int, unit: str) -> None:
-        """Reject ns sources whose boundary wrapped modulo 2^64 (floor above, ceil / next boundary below the source)."""
-        bad = pc.greater(cls._floor(column, n, unit), column)
-        if op == "ceil":
-            bad = pc.or_kleene(bad, pc.less(cls._ceil(column, n, unit), column))
-        elif op == "round":
-            upper = pc.ceil_temporal(
-                column, multiple=n, unit=unit, week_starts_monday=True, ceil_is_strictly_greater=True
-            )
-            bad = pc.or_kleene(bad, pc.less(upper, column))
-        bad = pc.fill_null(bad, False)
+    def _assert_boundaries_in_range(cls, column: Any, source_col: str, n: int, unit: str) -> None:
+        """Reject ns values within bucket width + 7 days of the representable range edge."""
+        lo, hi = TimeBucketizationFeatureGroup._nanosecond_safe_window(n, unit)
+        epoch = column.cast(pa.int64())
+        bad = pc.fill_null(pc.or_kleene(pc.less(epoch, lo), pc.greater(epoch, hi)), False)
         if pc.any(bad).as_py():
-            TimeBucketizationFeatureGroup._raise_boundary_out_of_range(source_col, pc.filter(column, bad)[0].as_py())
+            sample = pc.filter(column.cast(pa.timestamp("ns")), bad)[0].as_py()  # UTC instant, no zone conversion
+            TimeBucketizationFeatureGroup._raise_boundary_out_of_range(source_col, sample)
 
     @staticmethod
     def _floor(column: Any, n: int, unit: str) -> Any:
