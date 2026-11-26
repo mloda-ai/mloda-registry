@@ -12,7 +12,7 @@ from mloda.community.feature_groups.data_operations.row_preserving.rank.sqlite_r
 )
 from mloda.testing.feature_groups.data_operations.helpers import calculate_with, make_feature_set
 from mloda.testing.feature_groups.data_operations.mixins.capability import CapabilityHookTestMixin
-from mloda.testing.feature_groups.data_operations.mixins.frameworks import SqliteTestMixin
+from mloda.testing.feature_groups.data_operations.mixins.frameworks import SqliteTestMixin, SqliteViewTestMixin
 from mloda.testing.feature_groups.data_operations.mixins.reserved_columns import ReservedColumnsTestMixin
 from mloda.testing.feature_groups.data_operations.row_preserving.rank.rank import (
     RankTestBase,
@@ -54,3 +54,7 @@ class TestSqliteRank(CapabilityHookTestMixin, ReservedColumnsTestMixin, SqliteTe
         reported = result.types[result.columns.index(name)]
         assert reported == pa.bool_()
         assert result.to_arrow_table().schema.field(name).type == reported
+
+
+class TestSqliteRankViewInput(SqliteViewTestMixin, TestSqliteRank):
+    """Runs the Rank suite on a view input."""

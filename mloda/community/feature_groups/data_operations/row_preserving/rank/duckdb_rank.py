@@ -10,7 +10,7 @@ from mloda_plugins.compute_framework.base_implementations.duckdb.duckdb_relation
 from mloda_plugins.compute_framework.base_implementations.sql.sql_utils import pick_helper_column_name, quote_ident
 from mloda_plugins.compute_framework.base_implementations.sql.sql_window import OrderBy
 
-from mloda.community.feature_groups.data_operations.duckdb_helpers import is_float
+from mloda.community.feature_groups.data_operations.duckdb_helpers import is_float, with_input_position
 from mloda.community.feature_groups.data_operations.row_preserving.rank.base import (
     RankFeatureGroup,
 )
@@ -51,20 +51,23 @@ class DuckdbRank(Implementation[RankFeatureGroup]):
 
             # The boolean comparison wraps a ROW_NUMBER() window, so compute the
             # row number into a helper column first, then project the comparison
-            # (no OVER). DESC for top_, ASC for bottom_.
-            rank_rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
-            qhelper = quote_ident(rank_rn)
-            row_order = [OrderBy(order_by, descending=is_top, nulls="last")]
-            nan_flag = None
-            if is_top and is_float(data, order_by):
-                # DuckDB sorts NaN above every real value; rank NaN after them, before nulls.
-                nan_flag = pick_helper_column_name(taken=set(data.columns) | {feature_name, rank_rn})
-                cols = ", ".join(quote_ident(c) for c in data.columns)
-                data = data.project(f"{cols}, isnan({quote_ident(order_by)}) AS {quote_ident(nan_flag)}")
-                row_order = [OrderBy(nan_flag, nulls="last"), *row_order]
-            rel = data.window("ROW_NUMBER()", rank_rn, partition_by=partition_by, order_by=row_order)
-            keep = ", ".join(quote_ident(c) for c in rel.columns if c not in (rank_rn, nan_flag))
-            return rel.project(f"{keep}, ({qhelper} <= {n_val}) AS {quote_ident(feature_name)}")
+            # (no OVER). DESC for top_, ASC for bottom_; input position breaks ties.
+            def top_n_window(rel: DuckdbRelation, rn: str) -> DuckdbRelation:
+                rank_rn = pick_helper_column_name(taken=set(rel.columns) | {feature_name})
+                qhelper = quote_ident(rank_rn)
+                row_order = [OrderBy(order_by, descending=is_top, nulls="last")]
+                nan_flag = None
+                if is_top and is_float(rel, order_by):
+                    # DuckDB sorts NaN above every real value; rank NaN after them, before nulls.
+                    nan_flag = pick_helper_column_name(taken=set(rel.columns) | {feature_name, rank_rn})
+                    cols = ", ".join(quote_ident(c) for c in rel.columns)
+                    rel = rel.project(f"{cols}, isnan({quote_ident(order_by)}) AS {quote_ident(nan_flag)}")
+                    row_order = [OrderBy(nan_flag, nulls="last"), *row_order]
+                rel = rel.window("ROW_NUMBER()", rank_rn, partition_by=partition_by, order_by=[*row_order, rn])
+                keep = ", ".join(quote_ident(c) for c in rel.columns if c not in (rank_rn, nan_flag))
+                return rel.project(f"{keep}, ({qhelper} <= {n_val}) AS {quote_ident(feature_name)}")
+
+            return with_input_position(data, feature_name, top_n_window)
 
         if rank_type.startswith("ntile_"):
             ntile_n = int(rank_type[len("ntile_") :])

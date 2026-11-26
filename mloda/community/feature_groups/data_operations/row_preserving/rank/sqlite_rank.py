@@ -89,12 +89,14 @@ class SqliteRank(Implementation[RankFeatureGroup]):
             is_top = rank_type.startswith("top_")
             prefix = "top_" if is_top else "bottom_"
             n_val = int(rank_type[len(prefix) :])
-            helper = pick_helper_column_name(taken=set(data.columns) | {feature_name})
-            rel = data.window(
+            # rn (input position) breaks order_by ties.
+            rn = pick_helper_column_name(taken=set(data.columns) | {feature_name})
+            helper = pick_helper_column_name(taken=set(data.columns) | {feature_name, rn})
+            rel = data.with_row_number(rn).window(
                 "ROW_NUMBER()",
                 helper,
                 partition_by=partition_by,
-                order_by=[OrderBy(order_by, descending=is_top, nulls="last")],
+                order_by=[OrderBy(order_by, descending=is_top, nulls="last"), rn],
             )
             qhelper = quote_ident(helper)
             # A projection starting with ``*`` keeps the source column types (timestamp, date, bool).

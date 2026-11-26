@@ -45,13 +45,15 @@ Rank types:
 
 | Type | Semantics |
 |---|---|
-| `row_number` | Unique 1-based position, ties broken by `order_by` |
+| `row_number` | Unique 1-based position, ties broken by input order |
 | `rank` | Standard rank with gaps (1, 2, 2, 4) |
 | `dense_rank` | Standard rank without gaps (1, 2, 2, 3) |
 | `percent_rank` | `(rank - 1) / (n - 1)` in `[0, 1]` |
 | `ntile_N` | Split into N buckets, return 1..N |
 | `top_N` | Boolean: row is in top N by `order_by` |
 | `bottom_N` | Boolean: row is in bottom N by `order_by` |
+
+`row_number`, `ntile_N`, `top_N` and `bottom_N` break `order_by` ties by input position, so at a `top_N` / `bottom_N` cut the earlier input row wins.
 
 ```python
 Feature(

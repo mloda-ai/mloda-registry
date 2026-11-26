@@ -79,7 +79,7 @@ def _compute_rank(
             top_n = int(rank_type[len("top_") :])
             real = [i for i in rows if order_key(order_vals[i])[0] == 0]
             others = [i for i in rows if order_key(order_vals[i])[0] != 0]
-            for pos, idx in enumerate(real[::-1] + others):
+            for pos, idx in enumerate(sorted(real, key=lambda i: order_vals[i], reverse=True) + others):
                 result_values[idx] = pos + 1 <= top_n
 
         elif rank_type.startswith("bottom_"):
