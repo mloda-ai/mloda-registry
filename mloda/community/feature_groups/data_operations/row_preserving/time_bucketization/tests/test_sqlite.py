@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Callable
+from datetime import date
 from typing import Any
 
 import pytest
@@ -62,11 +63,6 @@ class TestSqliteTimeBucketizationComputedInput(SqliteComputedColumnTestMixin, Te
     """Runs the TimeBucketization suite on computed (empty declared type) input columns."""
 
 
-def _text_date_source() -> SqliteRelation:
-    tbl = pa.table({"timestamp": pa.array(["2024-01-01"], type=pa.string())})
-    return SqliteRelation.from_arrow(sqlite3.connect(":memory:"), tbl)
-
-
 def _date_affinity_source() -> SqliteRelation:
     con = sqlite3.connect(":memory:")
     con.execute('CREATE TABLE t ("timestamp" DATE)')
@@ -74,27 +70,68 @@ def _date_affinity_source() -> SqliteRelation:
     return SqliteRelation(con, "t")
 
 
-class TestSqliteDateOnlySource:
-    """A date-only source value is bucketed as midnight, not mistaken for a tz offset."""
+def _date32_source() -> SqliteRelation:
+    tbl = pa.table({"timestamp": pa.array([date(2024, 1, 1)], type=pa.date32())})
+    return SqliteRelation.from_arrow(sqlite3.connect(":memory:"), tbl)
 
-    @pytest.mark.parametrize("build_source", [_text_date_source, _date_affinity_source])
+
+def _string_source(*values: str) -> Callable[[], SqliteRelation]:
+    def build() -> SqliteRelation:
+        tbl = pa.table({"timestamp": pa.array(list(values), type=pa.string())})
+        return SqliteRelation.from_arrow(sqlite3.connect(":memory:"), tbl)
+
+    return build
+
+
+def _blob_source() -> SqliteRelation:
+    tbl = pa.table({"timestamp": pa.array([b"2024-01-01 14:00:00+01:00"], type=pa.binary())})
+    return SqliteRelation.from_arrow(sqlite3.connect(":memory:"), tbl)
+
+
+def _julian_integer_source() -> SqliteRelation:
+    con = sqlite3.connect(":memory:")
+    con.execute('CREATE TABLE t ("timestamp" DATETIME)')
+    con.execute("INSERT INTO t VALUES (2460000)")
+    return SqliteRelation(con, "t")
+
+
+class TestSqliteSourceShapes:
+    """Source values without a time of day or in a non-text storage class are rejected."""
+
     @pytest.mark.parametrize(
-        "feature, expected",
+        "build_source, match",
         [
-            ("timestamp__floor_1_day", "2024-01-01 00:00:00"),
-            ("timestamp__ceil_1_day", "2024-01-01 00:00:00"),
-            ("timestamp__round_1_hour", "2024-01-01 00:00:00"),
-            ("timestamp__ceil_1_week", "2024-01-08 00:00:00"),
+            pytest.param(_string_source("2024-01-01"), r"value '2024-01-01'", id="date-text"),
+            pytest.param(_date_affinity_source, r"value '2024-01-01'", id="date-affinity"),
+            pytest.param(_date32_source, r"value '2024-01-01'", id="date32"),
+            pytest.param(
+                _string_source("2024-01-01T14:00:00", "2024-01-01"), r"value '2024-01-01'", id="date-later-row"
+            ),
+            pytest.param(_string_source("14:00"), r"value '14:00'", id="time-only"),
+            pytest.param(_string_source("now"), r"value 'now'", id="now"),
+            pytest.param(
+                _string_source("2024-01-01 14:00:00+01:00 "),
+                r"value '2024-01-01 14:00:00\+01:00 '",
+                id="trailing-space",
+            ),
+            pytest.param(_blob_source, r"storage class 'blob'", id="blob"),
+            pytest.param(_julian_integer_source, r"storage class 'integer'", id="julian-integer"),
         ],
     )
-    def test_date_only_value_bucketed_as_midnight(
-        self, build_source: Callable[[], SqliteRelation], feature: str, expected: str
-    ) -> None:
-        result = calculate_with(SqliteTimeBucketization, build_source(), make_feature_set(feature))
-        assert result.to_arrow_table().column(feature).to_pylist() == [expected]
+    def test_non_timestamp_value_rejected(self, build_source: Callable[[], SqliteRelation], match: str) -> None:
+        with pytest.raises(ValueError, match=match):
+            calculate_with(SqliteTimeBucketization, build_source(), make_feature_set("timestamp__floor_1_day"))
 
-    def test_date_only_mixed_with_non_utc_offset_rejected(self) -> None:
-        tbl = pa.table({"timestamp": pa.array(["2024-01-01", "2023-01-01 14:00:00+01:00"], type=pa.string())})
-        rel = SqliteRelation.from_arrow(sqlite3.connect(":memory:"), tbl)
-        with pytest.raises(ValueError, match=r"non-UTC.*'2023-01-01 14:00:00\+01:00'"):
-            calculate_with(SqliteTimeBucketization, rel, make_feature_set("timestamp__floor_1_day"))
+    @pytest.mark.parametrize(
+        "value, feature, expected",
+        [
+            ("2024-01-01T14:00:00Z", "timestamp__floor_1_day", "2024-01-01 00:00:00+00:00"),
+            ("2024-01-01T14:00:00z", "timestamp__floor_1_day", "2024-01-01 00:00:00+00:00"),
+            ("2024-01-01T14:00:00Z", "timestamp__floor_1_month", "2024-01-01 00:00:00+00:00"),
+            ("2024-01-01T14:00:00.5Z", "timestamp__ceil_1_minute", "2024-01-01 14:01:00+00:00"),
+            ("2024-01-01 14:00", "timestamp__floor_1_hour", "2024-01-01 14:00:00"),
+        ],
+    )
+    def test_accepted_value_bucketed(self, value: str, feature: str, expected: str) -> None:
+        result = calculate_with(SqliteTimeBucketization, _string_source(value)(), make_feature_set(feature))
+        assert result.to_arrow_table().column(feature).to_pylist() == [expected]

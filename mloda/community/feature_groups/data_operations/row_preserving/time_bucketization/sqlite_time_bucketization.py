@@ -21,12 +21,12 @@ Result-type fidelity
 --------------------
 
 The SQL emits ISO 8601 strings directly: bucket math runs on the wall-clock
-portion of the timestamp (UTC ``+00:00`` suffix stripped if present), then
-the original suffix is concatenated back onto the result. The output column
-comes back from ``to_arrow_table()`` as ``pa.string()`` -- there is no
-Python-side re-parse into ``pa.timestamp`` and no ``SqliteRelation``
-subclass. Null sources propagate as ``NULL`` (Python ``None``) end-to-end,
-because SQLite's ``NULL || anything`` is ``NULL``.
+portion of the timestamp (a UTC ``+00:00`` or ``Z`` suffix is stripped), then
+the suffix is concatenated back onto the result (``Z`` is returned as
+``+00:00``). The output column comes back from ``to_arrow_table()`` as
+``pa.string()`` -- there is no Python-side re-parse into ``pa.timestamp`` and
+no ``SqliteRelation`` subclass. Null sources propagate as ``NULL`` (Python
+``None``) end-to-end, because SQLite's ``NULL || anything`` is ``NULL``.
 
 Bucket math
 -----------
@@ -72,9 +72,7 @@ from mloda.community.feature_groups.data_operations.sqlite_helpers import (
 # Affinity strings (from PRAGMA table_info) that imply a timestamp source.
 # ``SqliteRelation.from_arrow`` maps a tz-aware ``pa.timestamp(..., tz="UTC")``
 # arrow type to SQLite ``TEXT`` (see ``_arrow_type_to_sqlite``), and the
-# stored content is the ISO-8601 representation. We accept TEXT as a
-# candidate timestamp affinity and let the SQL functions surface any
-# parse-time error from non-timestamp text.
+# stored content is the ISO-8601 representation, so TEXT is a candidate.
 _SQLITE_TIMESTAMP_AFFINITIES: frozenset[str] = frozenset({"TEXT", "DATETIME", "TIMESTAMP", "DATE"})
 _TIMESTAMP_STORAGE_CLASSES: frozenset[str] = frozenset({"text"})
 
@@ -172,48 +170,29 @@ class SqliteTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
     def _assert_source_column_is_timestamp(cls, data: SqliteRelation, source_col: str) -> None:
         """Reject non-timestamp and non-UTC tz-aware source columns.
 
-        Three checks, all required for correct SQLite bucketization:
-
-        1. Column must exist with a timestamp-like affinity (TEXT included,
-           since ``SqliteRelation.from_arrow`` maps Arrow timestamps to TEXT).
-           A computed column (empty declared type) must hold only text values.
-        2. Every non-null value must parse via ``julianday``. SQLite's date
-           functions return NULL for unparsable input rather than raising,
-           so a LIMIT 1 probe would let later malformed rows slip past and
-           silently emit NULL at compute time.
-        3. No row may carry a non-UTC offset suffix. SQLite's TEXT storage
-           keeps the numeric ``+HH:MM`` but loses the IANA zone, which is
-           insufficient for DST-correct bucketization. UTC (``+00:00``)
-           and naive (no suffix) are accepted. A date-only value has no
-           offset and is read as midnight.
+        1. Storage class text for every value, declared affinity TEXT-like.
+        2. Every value parses, has a time of day and ends in a digit or ``Z``,
+           so date-only, time-only, 'now' and trailing characters are rejected.
+        3. No non-UTC offset (``+00:00`` and naive pass, ``Z`` is read as UTC).
         """
         affinity = column_affinities(data)[source_col]
-        descriptor = f"SQLite affinity {affinity!r}"
-        if affinity == "":
-            # Computed column (view expression): no declared type, so probe storage classes.
-            descriptor = "SQLite storage class 'text'"
-            offender = first_storage_class_outside(data, source_col, _TIMESTAMP_STORAGE_CLASSES)
-            if offender is not None:
-                TimeBucketizationFeatureGroup._raise_non_timestamp_source(
-                    source_col, f"SQLite storage class {offender!r}"
-                )
-        elif affinity not in _SQLITE_TIMESTAMP_AFFINITIES:
+        descriptor = "SQLite storage class 'text'" if affinity == "" else f"SQLite affinity {affinity!r}"
+        if affinity != "" and affinity not in _SQLITE_TIMESTAMP_AFFINITIES:
             TimeBucketizationFeatureGroup._raise_non_timestamp_source(source_col, descriptor)
+        offender = first_storage_class_outside(data, source_col, _TIMESTAMP_STORAGE_CLASSES)
+        if offender is not None:
+            TimeBucketizationFeatureGroup._raise_non_timestamp_source(source_col, f"SQLite storage class {offender!r}")
 
-        # Probe every non-null value via ``julianday`` to weed out
-        # TEXT-affinity columns that hold non-timestamp content. A LIMIT 1
-        # probe is unsafe here: SQLite's date functions return NULL for
-        # unparsable input (rather than raising), so a column whose first
-        # row parses but whose later rows are malformed would slip past
-        # validation and silently emit NULL bucketed values at compute
-        # time. We scan the whole column once for any non-null row whose
-        # julianday is NULL, and reject if found.
+        # Full-column scan: julianday returns NULL (not an error) for unparsable text.
         quoted_source = quote_ident(source_col)
         quoted_table = quote_ident(data.table_name)
+        wall = wall_clock_expr(quoted_source)
         probe_sql = (
             f"SELECT {quoted_source} "  # nosec
             f"FROM {quoted_table} "
-            f"WHERE {quoted_source} IS NOT NULL AND julianday({quoted_source}) IS NULL "
+            f"WHERE {quoted_source} IS NOT NULL AND (julianday({quoted_source}) IS NULL "
+            f"OR NOT (substr({wall}, 11, 1) IN (' ', 'T') AND substr({wall}, 14, 1) = ':' "
+            f"AND substr({quoted_source}, -1) GLOB '[0-9Zz]')) "
             f"LIMIT 1"
         )
         cursor = data.connection.execute(probe_sql)
@@ -221,16 +200,10 @@ class SqliteTimeBucketization(Implementation[TimeBucketizationFeatureGroup]):
         if row is not None:
             (raw_value,) = row
             TimeBucketizationFeatureGroup._raise_non_timestamp_source(
-                source_col, f"{descriptor} (value {raw_value!r} does not parse as timestamp)"
+                source_col, f"{descriptor} (value {raw_value!r} is not a date and time)"
             )
 
-        # Reject non-UTC tz-aware sources. SQLite stores tz-aware Arrow
-        # timestamps as ISO TEXT with a numeric ``+HH:MM`` / ``-HH:MM``
-        # suffix and loses the IANA zone name; without the zone we cannot
-        # do DST-correct floor / ceil / round (the result offset depends
-        # on the bucketed instant's offset, not the source row's offset).
-        # Accept ``+00:00`` (UTC) and naive (no suffix). For anything else
-        # we fail loudly rather than silently mis-compute across DST.
+        # The IANA zone is lost in TEXT, so only UTC and naive values can be bucketed DST-correctly.
         tz_probe_sql = (
             f"SELECT {quoted_source} "  # nosec
             f"FROM {quoted_table} "

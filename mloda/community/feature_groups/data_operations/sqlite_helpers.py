@@ -43,15 +43,19 @@ def first_storage_class_outside(data: "SqliteRelation", column: str, allowed: fr
 
 
 _HAS_OFFSET = "substr({q}, -6, 1) IN ('+', '-') AND substr({q}, -3, 1) = ':'"
+_HAS_Z = "upper(substr({q}, -1)) = 'Z'"
 
 
 def wall_clock_expr(quoted: str) -> str:
-    """SQL expression that strips a trailing ``+HH:MM`` / ``-HH:MM`` offset, leaving the wall clock."""
+    """SQL expression that strips a trailing ``+HH:MM`` / ``-HH:MM`` offset or ``Z``, leaving the wall clock."""
     cond = _HAS_OFFSET.format(q=quoted)
-    return f"(CASE WHEN {cond} THEN substr({quoted}, 1, length({quoted}) - 6) ELSE {quoted} END)"
+    return (
+        f"(CASE WHEN {cond} THEN substr({quoted}, 1, length({quoted}) - 6) "
+        f"WHEN {_HAS_Z.format(q=quoted)} THEN substr({quoted}, 1, length({quoted}) - 1) ELSE {quoted} END)"
+    )
 
 
 def offset_suffix_expr(quoted: str) -> str:
-    """SQL expression that yields the trailing ``+HH:MM`` / ``-HH:MM`` offset or ``''``."""
+    """SQL expression that yields the trailing ``+HH:MM`` / ``-HH:MM`` offset (``Z`` as ``+00:00``) or ``''``."""
     cond = _HAS_OFFSET.format(q=quoted)
-    return f"(CASE WHEN {cond} THEN substr({quoted}, -6) ELSE '' END)"
+    return f"(CASE WHEN {cond} THEN substr({quoted}, -6) WHEN {_HAS_Z.format(q=quoted)} THEN '+00:00' ELSE '' END)"
