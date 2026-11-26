@@ -31,6 +31,11 @@ class TestDuckdbTimeBucketization(DuckdbTestMixin, TimeBucketizationTestBase):
     def tz_aware_source_reads_utc(cls) -> bool:
         return True
 
+    @classmethod
+    def buckets_tz_aware_nanosecond_source(cls) -> bool:
+        """DuckDB rejects a TIMESTAMPTZ_NS source up front."""
+        return False
+
 
 class TestDuckdbDateSourceRejected:
     """DATE source columns are rejected up-front with a clear ValueError.

@@ -73,7 +73,7 @@ class TestPandasCalendarRoundDtype:
         )
         assert str(result["timestamp__round_1_year"].dt.tz) == "UTC"
 
-    @pytest.mark.parametrize("bucket_op", ["floor_1_month", "ceil_1_year"])
+    @pytest.mark.parametrize("bucket_op", ["floor_1_month", "ceil_1_year", "round_1_month"])
     def test_ms_source_keeps_unit(self, bucket_op: str) -> None:
         """A calendar unit on a datetime64[ms] source keeps the ms unit instead of widening to us."""
         data = pd.DataFrame({"ts": pd.Series(pd.to_datetime(["2023-06-15 14:37:23", None])).astype("datetime64[ms]")})

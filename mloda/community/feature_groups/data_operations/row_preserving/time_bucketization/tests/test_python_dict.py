@@ -65,6 +65,20 @@ class TestPythonDictDateSourceRejected:
             calculate_with(PythonDictTimeBucketization, data, fs)
 
 
+class TestPythonDictYear9999EdgeRejected:
+    """A bucket boundary past Python's year 9999 raises a ValueError naming the column."""
+
+    def test_ceil_past_year_9999_rejected(self) -> None:
+        from datetime import datetime
+
+        from mloda.testing.feature_groups.data_operations.helpers import make_feature_set
+
+        data = {"timestamp": [datetime(9999, 12, 31, 12)]}
+        fs = make_feature_set("timestamp__ceil_1_day")
+        with pytest.raises(ValueError, match=r"['\"]timestamp['\"]"):
+            calculate_with(PythonDictTimeBucketization, data, fs)
+
+
 class TestPythonDictNonUtcTimezoneSupported:
     """Non-UTC tz-aware sources are fully supported, unlike SQLite's TEXT-storage guard.
 
