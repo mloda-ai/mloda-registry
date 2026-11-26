@@ -32,8 +32,9 @@ class TestPythonDictTimeBucketization(PythonDictTestMixin, TimeBucketizationTest
         from datetime import datetime, timezone
         from zoneinfo import ZoneInfo
 
-        import pyarrow as pa
         from mloda.user import DataType
+
+        pa = pytest.importorskip("pyarrow")
 
         from mloda.testing.typed_data import TypedTestData
 
