@@ -929,7 +929,7 @@ regression_test:
 
 - **Operations**: `offset` (`diff_N`, `pct_change_N`).
 - **Reference behavior**: The uint64 difference is exact.
-- **Native pandas behavior**: There is no 128-bit integer, so a uint64 subtraction wraps; smaller values are cast to `Int64` and subtracted exactly. A uint64 column with nulls reaches production pandas as float64 and is not rejected.
+- **Native pandas behavior**: There is no 128-bit integer, so a uint64 subtraction wraps; smaller values are cast to `Int64` and subtracted exactly. A uint64 column with nulls reaches production pandas as float64, is not rejected, and loses precision above 2**53.
 - **Mitigation kind**: Rejection with a `ValueError` that suggests Polars or DuckDB.
 - **How**: The pandas test class overrides `rejects_uint64_above_int64()`, so `test_mixin_pinned_row` asserts the `ValueError` for such rows.
 - **Regression signal**: The pinned-row test fails if pandas stops raising.

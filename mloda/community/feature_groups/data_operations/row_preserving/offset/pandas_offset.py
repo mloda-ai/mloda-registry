@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
 import pandas as pd
 from mloda.provider import ComputeFramework, FeatureSet, Implementation
 from mloda_plugins.compute_framework.base_implementations.pandas.dataframe import PandasDataFrame
@@ -22,7 +23,7 @@ def _widen(series: pd.Series) -> pd.Series:
         return series
     extension = isinstance(dtype, pd.api.extensions.ExtensionDtype)
     if dtype.itemsize >= 8 and dtype.kind == "u":
-        if (series >= 2**63).any():
+        if (series >= np.uint64(2**63)).any():
             raise ValueError(
                 "Offset diff and pct_change on pandas cannot subtract a uint64 source value of 2**63 or more "
                 "without wrapping: it does not fit int64 and pandas has no 128-bit integer; use Polars or DuckDB"
@@ -71,14 +72,16 @@ class PandasOffset(Implementation[OffsetFeatureGroup]):
         data = data.sort_values(partition_by + [null_sort_col, order_by])
 
         shift_col = unique_helper_name("__mloda_shift_src", set(data.columns) | {feature_name})
-        unsigned_64 = (
-            pd.api.types.is_unsigned_integer_dtype(data[source_col].dtype) and data[source_col].dtype.itemsize >= 8
-        )
-        if offset_type.startswith(("lag_", "lead_", "diff_")) or unsigned_64:
-            data[shift_col] = _nullable(data[source_col])
-        else:
-            data[shift_col] = data[source_col]
-        grouped = null_safe_groupby(data, partition_by, shift_col)
+        shifts = offset_type.startswith(("lag_", "lead_", "diff_", "pct_change_"))
+        if shifts:
+            unsigned_64 = (
+                pd.api.types.is_unsigned_integer_dtype(data[source_col].dtype) and data[source_col].dtype.itemsize >= 8
+            )
+            if offset_type.startswith(("lag_", "lead_", "diff_")) or unsigned_64:
+                data[shift_col] = _nullable(data[source_col])
+            else:
+                data[shift_col] = data[source_col]
+            grouped = null_safe_groupby(data, partition_by, shift_col)
 
         if offset_type.startswith("lag_"):
             offset_n = int(offset_type[len("lag_") :])
@@ -100,7 +103,7 @@ class PandasOffset(Implementation[OffsetFeatureGroup]):
         else:
             raise ValueError(f"Unsupported offset type: {offset_type}")
 
-        data = data.drop(columns=[null_sort_col, shift_col])
+        data = data.drop(columns=[null_sort_col, shift_col] if shifts else [null_sort_col])
         # Restore original row order
         data = data.sort_index()
         return data

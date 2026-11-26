@@ -415,12 +415,12 @@ def _lost_input_table() -> PinningTable:
         case="c",
         feature="f",
         inputs={"a": (DataType.INT64, (1, None)), "s": (DataType.STRING, ("x", "y"))},
-        expected={"f": (DataType.INT64, (1, None)), "g": (DataType.STRING, ("x", "y"))},
+        expected={"a__f": (DataType.INT64, (1, None)), "s__g": (DataType.STRING, ("x", "y"))},
     )
     return PinningTable(operation="op", rules={}, rows=(row,))
 
 
-_LOST_RESULT: dict[str, list[Any]] = {"f": [1, None], "g": ["x", "y"], "a": [1, None], "s": ["x", "y"]}
+_LOST_RESULT: dict[str, list[Any]] = {"a__f": [1, None], "s__g": ["x", "y"], "a": [1, None], "s": ["x", "y"]}
 
 
 class TestLostFixtureType:
@@ -428,7 +428,7 @@ class TestLostFixtureType:
     def _host(fixture_a: str, result_f: tuple[bool | None, str], result_g: bool | None = True) -> Any:
         adapter = _PerColumnAdapter(
             fixture={"a": (False, fixture_a), "s": (True, "str")},
-            result={"f": result_f, "g": (result_g, "str"), "a": (True, "x"), "s": (True, "str")},
+            result={"a__f": result_f, "s__g": (result_g, "str"), "a": (True, "x"), "s": (True, "str")},
         )
         return _make_host(_returns(_LOST_RESULT), None, table=_lost_input_table(), adapter=adapter, checks_types=True)
 
@@ -440,5 +440,22 @@ class TestLostFixtureType:
             self._host("float64", (True, "int64")).test_mixin_pinned_row(_CASE_ID)
 
     def test_column_matching_no_lost_input_keeps_the_declared_check(self) -> None:
-        with pytest.raises(AssertionError, match=r"g.*STRING"):
+        with pytest.raises(AssertionError, match=r"s__g.*STRING"):
             self._host("float64", (False, "float64"), result_g=False).test_mixin_pinned_row(_CASE_ID)
+
+    def test_lost_type_of_a_non_source_input_keeps_the_declared_check(self) -> None:
+        row = PinningRow(
+            case="c",
+            feature="f",
+            inputs={"a": (DataType.INT64, (1, 2)), "b": (DataType.INT64, (1, None))},
+            expected={"a__f": (DataType.INT64, (1, 2))},
+        )
+        table = PinningTable(operation="op", rules={}, rows=(row,))
+        adapter = _PerColumnAdapter(
+            fixture={"a": (True, "int64"), "b": (False, "float64")},
+            result={"a__f": (False, "float64"), "a": (True, "int64"), "b": (True, "float64")},
+        )
+        result: dict[str, list[Any]] = {"a__f": [1, 2], "a": [1, 2], "b": [1, None]}
+        host = _make_host(_returns(result), None, table=table, adapter=adapter, checks_types=True)
+        with pytest.raises(AssertionError, match=r"a__f.*INT64"):
+            host.test_mixin_pinned_row(_CASE_ID)

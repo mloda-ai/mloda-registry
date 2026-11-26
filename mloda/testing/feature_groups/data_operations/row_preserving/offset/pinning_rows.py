@@ -290,5 +290,12 @@ OFFSET_PINNING = PinningTable(
             expected={"v__last_value_offset": (_I, (0, 0))},
             context=_CTX,
         ),
+        PinningRow(
+            case="dtype",
+            feature="v__diff_1_offset",
+            inputs={"p": (_S, ("a", "a")), "o": (_I, (1, 2)), "v": (_I, (2, 3))},
+            expected={"v__diff_1_offset": (_I, (None, 1))},
+            context=_CTX,
+        ),
     ),
 )
