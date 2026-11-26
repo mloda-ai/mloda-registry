@@ -21,6 +21,10 @@ class TestPandasOffset(PandasTestMixin, OffsetTestBase):
     def implementation_class(cls) -> Any:
         return PandasOffset
 
+    @classmethod
+    def rejects_uint64_above_int64(cls) -> bool:
+        return True
+
 
 class TestPandasOffsetNullableInt(PandasNullableIntTestMixin, TestPandasOffset):
     """Runs the offset suite on nullable pandas int columns."""

@@ -78,7 +78,7 @@ Offset types:
 |---|---|
 | `lag_N` | Value from N rows earlier (NULL for first N rows per partition) |
 | `lead_N` | Value from N rows later |
-| `diff_N` | `value - lag_N(value)`; integer source gives int64, float gives float64, timestamp gives a duration, other types raise |
+| `diff_N` | `value - lag_N(value)`; integer source gives int64, float gives float64, timestamp gives a duration, other types raise; a uint64 source is subtracted exactly (pandas rejects values of 2**63 or more) |
 | `pct_change_N` | `(value - lag_N(value)) / lag_N(value)` |
 | `first_value` | First value in the partition by `order_by` |
 | `last_value` | Last value in the partition by `order_by` |

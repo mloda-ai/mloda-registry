@@ -157,6 +157,16 @@ class PinnedRowTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
         arrow_types = {name: DataType.to_arrow_type(DataType.FLOAT) for name in float_inputs}
         return self.create_test_data(TypedTestData(row.inputs), arrow_types)
 
+    @staticmethod
+    def _lost_input_type(adapter: Any, row: PinningRow, created: Any, column: str, data_type: DataType) -> Any:
+        """Fixture exact type of the column's source input if it has the declared type the fixture lost, else None."""
+        source = column.split("__", 1)[0]
+        if source in row.inputs:
+            input_type = row.inputs[source][0]
+            if input_type == data_type and adapter.has_type(created, source, input_type) is False:
+                return adapter.exact_type(created, source)
+        return None
+
     def test_mixin_pinned_row(self, pinned_row_case: str) -> None:
         """A row matches the backend result (pins win over expected_values); rejection_match takes precedence."""
         row = self.pinned_row_cases()[pinned_row_case]
@@ -172,7 +182,8 @@ class PinnedRowTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
         expected = self.expected_values(row)
         for column, values in self.pinned_divergences().get(pinned_row_case, {}).items():
             expected[column] = list(values)
-        result = calculate_with(self.implementation_class(), self._create_pinned_data(row), fs)
+        created = self._create_pinned_data(row)
+        result = calculate_with(self.implementation_class(), created, fs)
         for column, values in expected.items():
             self.assert_pinned_values(row, column, self.extract_column(result, column), values)
         adapter = getattr(self, "adapter", None)
@@ -183,6 +194,12 @@ class PinnedRowTestMixin(DataOpsTestBase, CaseParametrizationTestMixin):
             assert set(adapter.column_names(result)) == expected_columns
             if self.checks_pinned_types():
                 for column, (data_type, _) in row.expected.items():
+                    lost = self._lost_input_type(adapter, row, created, column, data_type)
+                    if lost is not None:
+                        assert adapter.exact_type(result, column) == lost, (
+                            f"{column}: expected the fixture type {lost}, got {adapter.exact_type(result, column)}"
+                        )
+                        continue
                     assert adapter.has_type(result, column, data_type) is not False, (
                         f"{column}: expected {data_type.name}, got {adapter.exact_type(result, column)}"
                     )

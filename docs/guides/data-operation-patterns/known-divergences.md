@@ -915,6 +915,25 @@ regression_test:
 - **How**: The SQLite test class overrides `rejects_non_utc_source()`, so `test_mixin_pinned_row` asserts the up-front `ValueError` for non-UTC rows.
 - **Regression signal**: The rejection test fails if SQLite starts accepting such a column.
 
+### Pandas offset rejects a uint64 diff or pct_change source of 2**63 or more
+
+<!-- machine-checked
+operation: offset
+framework: pandas
+condition: a uint64 source with a non-null value of 2**63 or more is rejected for diff and pct_change, because the value does not fit int64
+mitigation_location:
+- mloda/community/feature_groups/data_operations/row_preserving/offset/pandas_offset.py
+regression_test:
+- mloda/community/feature_groups/data_operations/row_preserving/offset/tests/test_pandas.py::TestPandasOffset::test_mixin_pinned_row
+-->
+
+- **Operations**: `offset` (`diff_N`, `pct_change_N`).
+- **Reference behavior**: The uint64 difference is exact.
+- **Native pandas behavior**: There is no 128-bit integer, so a uint64 subtraction wraps; smaller values are cast to `Int64` and subtracted exactly. A uint64 column with nulls reaches production pandas as float64, is not rejected, and loses precision above 2**53.
+- **Mitigation kind**: Rejection with a `ValueError` that suggests Polars or DuckDB.
+- **How**: The pandas test class overrides `rejects_uint64_above_int64()`, so `test_mixin_pinned_row` asserts the `ValueError` for such rows.
+- **Regression signal**: The pinned-row test fails if pandas stops raising.
+
 ---
 
 ## Declared divergence records

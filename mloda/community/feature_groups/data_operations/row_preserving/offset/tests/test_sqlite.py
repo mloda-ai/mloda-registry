@@ -22,6 +22,10 @@ class TestSqliteOffset(SqliteTestMixin, OffsetTestBase):
     def implementation_class(cls) -> Any:
         return SqliteOffset
 
+    @classmethod
+    def holds_uint64_above_int64(cls) -> bool:
+        return False
+
     @pytest.mark.parametrize("source_type", [pa.int64(), pa.float64()])
     @pytest.mark.parametrize("op", ["first_value", "last_value"])
     def test_all_null_source_keeps_source_type(self, op: str, source_type: pa.DataType) -> None:
