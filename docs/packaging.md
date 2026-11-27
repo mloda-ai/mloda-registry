@@ -356,6 +356,8 @@ regenerate, then relock and commit `uv.lock`:
 uv tool run --from "uv==0.13.5" uv lock
 ```
 
+Right after an mloda release, add `--refresh` if the new version is not found.
+
 Relock with exactly the uv the release job pins in `.github/workflows/release.yaml`, since
 that job rewrites `uv.lock` on every release: an older or newer uv can also rewrite unrelated
 lock lines, and the next release commit flips them back. tox syncs every workspace
